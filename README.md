@@ -99,6 +99,12 @@ npm --workspace frontend run build
 
 The frontend renders only real Supabase/onchain state. Empty production state is shown as empty state UI instead of seeded fake cards.
 
+Production deployment:
+
+- GitHub: `https://github.com/TS-mfon/workproof`
+- Vercel: `https://workproof-gen-daves-projects.vercel.app`
+- Vercel project: `gen-daves-projects/workproof`
+
 ## Current Verification Status
 
 - `npm run compile` passes.
@@ -108,6 +114,9 @@ The frontend renders only real Supabase/onchain state. Empty production state is
 - `genvm-lint check contracts/genlayer/WorkVerifier.py` passes AST lint but SDK validation currently fails while loading the remote SDK with `HTTP Error 404: Not Found`.
 - `genlayer call 0x3C2AA0450B01aEc02e172DF560aD383f7D14BD74 get_verdict --args stress-dry-run` passes.
 - `npm run test` currently fails in this environment with `Bus error (core dumped)` while starting the Hardhat test process.
+- Production Vercel URL returns `HTTP 200`.
+- Generated stress wallets were funded on Arbitrum Sepolia for the low-budget stress run.
+- Live UI-backed stress data creation is pending real `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, and an oracle runtime env.
 - The protocol no longer deploys `JuryRegistry`; GenLayer validators are the only work review layer.
 
 ## Final Verification Checklist
@@ -129,3 +138,12 @@ npm run stress:post70
 ```
 
 The stress scripts generate ignored local test wallets, fund them from the deployer, create escrow-backed jobs, submit public deliverables, and rely on the oracle plus GenLayer Studionet to resolve submitted jobs.
+
+For production stress runs, set:
+
+- `WORKPROOF_CONTRACT=0x6f20e728a36c710ba7ECe9b3378Cb14A69eE0b1B`
+- `GENLAYER_CONTRACT=0x3C2AA0450B01aEc02e172DF560aD383f7D14BD74`
+- `WORKPROOF_APP_URL=https://workproof-gen-daves-projects.vercel.app`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_KEY`
+- `ORACLE_PRIVATE_KEY`

@@ -45,10 +45,13 @@ This checklist tracks the active WorkProof build after removing the jury system 
 - [x] Verify GenLayer empty read path with `get_verdict("stress-dry-run")`
 - [ ] Apply Supabase migration
 - [ ] Create public GitHub repo and push `main`
-- [ ] Vercel project linked/configured: `gen-daves-projects/workproof` (GitHub-connected, root `frontend`, Next.js)
-- [ ] Create new Vercel production deployment
+- [x] Vercel project linked/configured: `gen-daves-projects/workproof` (GitHub-connected, root `frontend`, Next.js)
+- [x] Create Vercel production deployment: `https://workproof-gen-daves-projects.vercel.app`
+- [x] Disable Vercel Authentication for public access
+- [x] Verify production URL returns `HTTP 200`
 - [ ] Fund generated stress wallets with low test budget
-- [ ] Create 30 live jobs
-- [ ] Complete 10 jobs with 4 freelancer wallets through full GenLayer E2E
-- [ ] Verify activity feed and leaderboard from real data
+- [x] Fund generated stress wallets with low test budget
+- [ ] Create 30 live jobs (blocked until real Supabase service credentials are available)
+- [ ] Complete 10 jobs with 4 freelancer wallets through full GenLayer E2E (blocked until Supabase + oracle runtime env are available)
+- [ ] Verify activity feed and leaderboard from real data (blocked until Supabase data exists)
 - [ ] Create 70 additional jobs with varied deadlines after E2E verification

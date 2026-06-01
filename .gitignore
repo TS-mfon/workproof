@@ -1,0 +1,14 @@
+node_modules/
+.next/
+artifacts/
+cache/
+coverage/
+typechain-types/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+!.env.local.example
+.stress-wallets.local.json
+deployments/*.local.json
+npm-debug.log*

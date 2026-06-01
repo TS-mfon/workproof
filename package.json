@@ -1,0 +1,62 @@
+{
+  "name": "workproof",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WorkProof onchain hiring escrow with GenLayer proof-of-work attestation",
+  "workspaces": [
+    "oracle",
+    "frontend"
+  ],
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:arbitrum-sepolia": "hardhat run contracts/arbitrum/deploy/deploy.ts --network arbitrumSepolia",
+    "stress:wallets": "tsx scripts/stress-workproof.ts wallets",
+    "stress:fund": "tsx scripts/stress-workproof.ts fund",
+    "stress:balances": "tsx scripts/stress-workproof.ts balances",
+    "stress:post30": "tsx scripts/stress-workproof.ts post30",
+    "stress:submit10": "tsx scripts/stress-workproof.ts submit10",
+    "stress:post70": "tsx scripts/stress-workproof.ts post70",
+    "oracle:dev": "npm --workspace oracle run dev",
+    "frontend:dev": "npm --workspace frontend run dev",
+    "frontend:build": "npm --workspace frontend run build",
+    "check": "npm run compile && npm run test && npm --workspace oracle run typecheck && npm --workspace frontend run build"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@types/node": "^24.10.1",
+    "hardhat": "^2.28.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@ethereumjs/util": "^9.1.0",
+    "@fastify/busboy": "^3.2.0",
+    "@noble/curves": "^1.9.0",
+    "@noble/hashes": "^1.8.0",
+    "@nomicfoundation/ignition-core": "^0.15.14",
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "@scure/bip39": "^1.6.0",
+    "@supabase/auth-js": "^2.88.0",
+    "@supabase/functions-js": "^2.88.0",
+    "@supabase/postgrest-js": "^2.88.0",
+    "@supabase/realtime-js": "^2.88.0",
+    "@supabase/storage-js": "^2.88.0",
+    "@supabase/supabase-js": "^2.106.2",
+    "abitype": "^1.1.0",
+    "dotenv": "^17.2.3",
+    "ethereum-cryptography": "^2.2.1",
+    "ethers": "^6.16.0",
+    "lodash": "^4.17.21",
+    "pino-pretty": "^13.1.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "readable-stream": "^3.6.2",
+    "source-map-js": "^1.2.1",
+    "viem": "^2.47.12",
+    "wagmi": "^2.19.2"
+  },
+  "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

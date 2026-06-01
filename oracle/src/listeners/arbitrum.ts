@@ -1,0 +1,51 @@
+import { env } from "../config.js";
+import { publicClient } from "../lib/chain.js";
+import { workProofAbi } from "../lib/abi.js";
+import { logActivity, updateJob } from "../db/supabase.js";
+import { triggerVerify } from "../actions/triggerVerify.js";
+
+export function startArbitrumListener() {
+  return publicClient.watchContractEvent({
+    address: env.WORKPROOF_CONTRACT as `0x${string}`,
+    abi: workProofAbi,
+    eventName: "WorkSubmitted",
+    onLogs: async (logs) => {
+      for (const log of logs) {
+        const jobId = log.args.jobId!;
+        const freelancer = log.args.freelancer!;
+        const deliverableUrl = log.args.deliverableUrl!;
+        const job = await publicClient.readContract({
+          address: env.WORKPROOF_CONTRACT as `0x${string}`,
+          abi: workProofAbi,
+          functionName: "getJob",
+          args: [jobId]
+        });
+
+        await updateJob(jobId, {
+          status: "UnderReview",
+          freelancer_wallet: freelancer,
+          deliverable_url: deliverableUrl
+        });
+        await logActivity({
+          event_type: "work_submitted",
+          job_id: jobId,
+          actor_wallet: freelancer,
+          metadata: { deliverableUrl },
+          tx_hash: log.transactionHash
+        });
+        await triggerVerify({
+          jobId,
+          deliverableUrl,
+          acceptanceCriteria: job.acceptanceCriteria,
+          retryCount: Number(job.retryCount)
+        });
+        await logActivity({
+          event_type: "retry_attempt",
+          job_id: jobId,
+          actor_wallet: freelancer,
+          metadata: { message: "Pending GenLayer verification" }
+        });
+      }
+    }
+  });
+}

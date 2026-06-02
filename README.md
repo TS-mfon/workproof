@@ -71,14 +71,21 @@ genlayer deploy --contract contracts/genlayer/WorkVerifier.py
 
 Current GenLayer Studionet deployment:
 
-- `WorkVerifier`: `0x3C2AA0450B01aEc02e172DF560aD383f7D14BD74`
-- Empty read check: `get_verdict("stress-dry-run") -> {"ready": false}`
+- `WorkVerifier`: `0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e`
+- Stress read check: first 10 submitted stress jobs returned `ready: true` from `get_verdict`.
 
 Copy the deployed GenLayer contract address into `GENLAYER_CONTRACT`.
 
 ## Supabase
 
 Apply `supabase/migrations/001_workproof_schema.sql` to a fresh Supabase project. The service key is required by the oracle and Next.js API routes for append-only activity and automated job updates.
+
+Current Supabase status:
+
+- `/home/sudodave/buildenv/.env` contains `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`.
+- The supplied project currently has no `public.users` table, so the schema has not been applied yet.
+- The Supabase REST service role key cannot create/drop schemas through the Management API. A Supabase access token or direct Postgres connection string is required to wipe/create the database schema.
+- Until the schema exists, production UI reads intentionally render empty states instead of fake data.
 
 ## Oracle
 
@@ -112,11 +119,12 @@ Production deployment:
 - `npm --workspace frontend run typecheck` passes.
 - `npm --workspace frontend run build` passes.
 - `genvm-lint check contracts/genlayer/WorkVerifier.py` passes AST lint but SDK validation currently fails while loading the remote SDK with `HTTP Error 404: Not Found`.
-- `genlayer call 0x3C2AA0450B01aEc02e172DF560aD383f7D14BD74 get_verdict --args stress-dry-run` passes.
+- `genlayer call 0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e get_verdict --args <stress-job-id>` returned ready verdicts for the 10 submitted stress jobs.
 - `npm run test` currently fails in this environment with `Bus error (core dumped)` while starting the Hardhat test process.
 - Production Vercel URL returns `HTTP 200`.
 - Generated stress wallets were funded on Arbitrum Sepolia for the low-budget stress run.
-- Live UI-backed stress data creation is pending real `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, and an oracle runtime env.
+- Onchain stress run posted 100 escrow-backed jobs, submitted 10 jobs from 4 freelancer wallets, verified all 10 through GenLayer readiness, relayed successful verdicts, and claimed the 10 rewards.
+- Live UI-backed stress data sync is pending a fresh Supabase schema, because the current database has no WorkProof tables.
 - The protocol no longer deploys `JuryRegistry`; GenLayer validators are the only work review layer.
 
 ## Final Verification Checklist
@@ -134,15 +142,28 @@ npm run stress:wallets
 npm run stress:fund
 npm run stress:post30
 npm run stress:submit10
+npm run stress:verify10-genlayer
+npm run stress:poll10-genlayer
+npm run stress:complete10
 npm run stress:post70
 ```
 
 The stress scripts generate ignored local test wallets, fund them from the deployer, create escrow-backed jobs, submit public deliverables, and rely on the oracle plus GenLayer Studionet to resolve submitted jobs.
 
+Completed stress result:
+
+- Generated 1 client wallet and 4 freelancer wallets.
+- Posted 30 initial escrow-backed jobs on Arbitrum Sepolia.
+- Submitted the first 10 jobs from the 4 freelancer wallets.
+- Verified all 10 submitted jobs to ready verdict state in GenLayer Studionet.
+- Relayed verdicts to `WorkProof.receiveVerdict` and claimed all 10 rewards.
+- Posted 70 additional escrow-backed jobs with varied deadlines, bringing the run to 100 total jobs.
+- Confirmed the contract still tracks the 4 freelancer wallets after the stress run.
+
 For production stress runs, set:
 
 - `WORKPROOF_CONTRACT=0x6f20e728a36c710ba7ECe9b3378Cb14A69eE0b1B`
-- `GENLAYER_CONTRACT=0x3C2AA0450B01aEc02e172DF560aD383f7D14BD74`
+- `GENLAYER_CONTRACT=0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e`
 - `WORKPROOF_APP_URL=https://workproof-gen-daves-projects.vercel.app`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_KEY`

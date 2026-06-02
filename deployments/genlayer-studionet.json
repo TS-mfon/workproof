@@ -1,14 +1,14 @@
 {
   "network": "studionet",
   "chainId": 61999,
-  "workVerifier": "0x3C2AA0450B01aEc02e172DF560aD383f7D14BD74",
+  "workVerifier": "0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e",
   "rpc": "https://studio.genlayer.com/api",
   "verifiedRead": {
     "method": "get_verdict",
-    "args": ["stress-dry-run"],
+    "args": ["stress-job-1"],
     "result": {
-      "ready": false
+      "ready": true
     }
   },
-  "deployedAt": "2026-06-01T20:30:00.000Z"
+  "deployedAt": "2026-06-02T00:00:00.000Z"
 }

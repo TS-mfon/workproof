@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -17,10 +18,12 @@ import { workProofAbi } from "../frontend/lib/contracts";
 
 const rpcUrl = process.env.ARBITRUM_SEPOLIA_RPC ?? process.env.NEXT_PUBLIC_ARBITRUM_SEPOLIA_RPC ?? "https://sepolia-rollup.arbitrum.io/rpc";
 const contractAddress = process.env.WORKPROOF_CONTRACT ?? process.env.NEXT_PUBLIC_WORKPROOF_CONTRACT;
+const genLayerContract = process.env.GENLAYER_CONTRACT;
 const deployerKey = process.env.DEPLOYER_PRIVATE_KEY ?? process.env.DEPLOYER_PRIVATEKEY ?? process.env["private key"];
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 const appUrl = process.env.WORKPROOF_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://127.0.0.1:3000";
+const skipDb = process.env.STRESS_SKIP_DB === "1" || process.env.STRESS_SKIP_DB === "true";
 const statePath = path.join(process.cwd(), ".stress-wallets.local.json");
 
 const domains = ["frontend", "smart-contracts", "design", "content", "marketing"];
@@ -75,11 +78,14 @@ const publicClient = createPublicClient({ chain: arbitrumSepolia, transport: htt
 async function fundWallets(state: WalletState) {
   const key = requireEnv(deployerKey, "DEPLOYER_PRIVATE_KEY");
   const funder = wallet(key as Hex);
-  const targets = [state.client, ...state.freelancers];
+  const targets = [
+    { ...state.client, minimum: parseEther("0.13"), topUp: parseEther("0.13") },
+    ...state.freelancers.map((freelancer) => ({ ...freelancer, minimum: parseEther("0.025"), topUp: parseEther("0.025") }))
+  ];
   for (const target of targets) {
     const balance = await publicClient.getBalance({ address: target.address });
-    if (balance >= parseEther("0.015")) continue;
-    const hash = await funder.sendTransaction({ to: target.address, value: parseEther("0.02") });
+    if (balance >= target.minimum) continue;
+    const hash = await funder.sendTransaction({ to: target.address, value: target.topUp });
     await wait(hash);
     console.log(`funded ${target.address} ${hash}`);
   }
@@ -111,6 +117,7 @@ async function insertSupabaseJob(input: {
   deadline: bigint;
   txHash: Hex;
 }) {
+  if (skipDb) return;
   const supabase = createClient(requireEnv(supabaseUrl, "SUPABASE_URL"), requireEnv(supabaseKey, "SUPABASE_SERVICE_KEY"), { auth: { persistSession: false } });
   await supabase.from("users").upsert({ wallet_address: input.client, role: "client" }, { onConflict: "wallet_address" });
   if (input.freelancer) await supabase.from("users").upsert({ wallet_address: input.freelancer, role: "freelancer" }, { onConflict: "wallet_address" });
@@ -175,11 +182,11 @@ async function postJobs(count: number, offset: number, assignFirst = 0) {
   }
 }
 
-async function submitTen() {
+async function submitTen(limit = 10) {
   const address = requireEnv(contractAddress, "WORKPROOF_CONTRACT") as Hex;
   const state = loadOrCreateWallets();
   const ids = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJobIds" });
-  const latest = [...ids].slice(0, 30).slice(0, 10);
+  const latest = [...ids].slice(0, 30).slice(0, limit);
   for (let i = 0; i < latest.length; i++) {
     const freelancer = state.freelancers[i % state.freelancers.length];
     const freelancerWallet = wallet(freelancer.privateKey);
@@ -187,6 +194,98 @@ async function submitTen() {
     const hash = await freelancerWallet.writeContract({ address, abi: workProofAbi, functionName: "submitWork", args: [latest[i], deliverableUrl] });
     await wait(hash);
     console.log(`submitted ${latest[i]} by ${freelancer.address}`);
+  }
+}
+
+async function relayPassAndClaim(limit = 10) {
+  const address = requireEnv(contractAddress, "WORKPROOF_CONTRACT") as Hex;
+  const key = requireEnv(deployerKey, "DEPLOYER_PRIVATE_KEY");
+  const oracleWallet = wallet(key as Hex);
+  const state = loadOrCreateWallets();
+  const ids = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJobIds" });
+  const selected = [...ids].slice(0, 30).slice(0, limit);
+  for (let i = 0; i < selected.length; i++) {
+    const jobId = selected[i];
+    const hash = await oracleWallet.writeContract({
+      address,
+      abi: workProofAbi,
+      functionName: "receiveVerdict",
+      args: [jobId, true, 88, "Stress verification passed via GenLayer/manual oracle relay path."]
+    });
+    await wait(hash);
+    const freelancer = state.freelancers[i % state.freelancers.length];
+    const freelancerWallet = wallet(freelancer.privateKey);
+    const claimHash = await freelancerWallet.writeContract({ address, abi: workProofAbi, functionName: "claimReward", args: [jobId] });
+    await wait(claimHash);
+    console.log(`completed ${jobId} verdict=${hash} claim=${claimHash}`);
+  }
+}
+
+function runGenLayer(args: string[]) {
+  const output = execFileSync("genlayer", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const txHash = output.match(/(?:Write Transaction Hash|Transaction Hash):\s*\n?([0-9a-fA-Fx]{66})/)?.[1];
+  const contractAddress = output.match(/Contract Address['"]?:\s*['"]?([0-9a-fA-Fx]{42})/)?.[1];
+  const ready = output.match(/'ready'\s*=>\s*(true|false)|"ready"\s*:\s*(true|false)/);
+  if (txHash) console.log(`genlayer_tx=${txHash}`);
+  if (contractAddress) console.log(`genlayer_contract=${contractAddress}`);
+  if (ready) console.log(`genlayer_ready=${ready[1] ?? ready[2]}`);
+  if (!txHash && !contractAddress && !ready) console.log(output.split("\n").slice(-8).join("\n"));
+  return output;
+}
+
+async function verifyTenWithGenLayer(limit = 10) {
+  const address = requireEnv(contractAddress, "WORKPROOF_CONTRACT") as Hex;
+  const verifier = requireEnv(genLayerContract, "GENLAYER_CONTRACT");
+  const ids = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJobIds" });
+  const selected = [...ids].slice(0, 30).slice(0, limit);
+  for (const jobId of selected) {
+    const job = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJob", args: [jobId] });
+    if (!job.deliverableUrl) throw new Error(`Job ${jobId} has no deliverableUrl`);
+    console.log(`verifying ${jobId} with GenLayer`);
+    runGenLayer([
+      "write",
+      verifier,
+      "verify_work",
+      "--args",
+      jobId,
+      job.deliverableUrl,
+      job.acceptanceCriteria,
+      String(job.retryCount)
+    ]);
+  }
+}
+
+async function pollTenGenLayer(limit = 10) {
+  const address = requireEnv(contractAddress, "WORKPROOF_CONTRACT") as Hex;
+  const verifier = requireEnv(genLayerContract, "GENLAYER_CONTRACT");
+  const ids = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJobIds" });
+  const selected = [...ids].slice(0, 30).slice(0, limit);
+  for (const jobId of selected) {
+    console.log(`verdict ${jobId}`);
+    runGenLayer(["call", verifier, "get_verdict", "--args", jobId]);
+  }
+}
+
+async function syncFromChainToSupabase() {
+  const address = requireEnv(contractAddress, "WORKPROOF_CONTRACT") as Hex;
+  const state = loadOrCreateWallets();
+  const ids = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJobIds" });
+  for (let i = 0; i < ids.length; i++) {
+    const job = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJob", args: [ids[i]] });
+    const freelancer = job.assignedFreelancer === "0x0000000000000000000000000000000000000000" ? undefined : job.assignedFreelancer;
+    await insertSupabaseJob({
+      jobId: ids[i],
+      client: state.client.address,
+      freelancer,
+      title: job.title,
+      description: `Synced onchain stress job ${i + 1}.`,
+      acceptance: job.acceptanceCriteria,
+      domain: job.domain,
+      amountWei: job.escrowAmount,
+      deadline: job.deadline,
+      txHash: "0x0000000000000000000000000000000000000000000000000000000000000000"
+    });
+    console.log(`synced ${ids[i]} ${job.title}`);
   }
 }
 
@@ -199,7 +298,11 @@ async function main() {
   if (phase === "fund") return fundWallets(state);
   if (phase === "post30") return postJobs(30, 0, 10);
   if (phase === "submit10") return submitTen();
+  if (phase === "verify10-genlayer") return verifyTenWithGenLayer();
+  if (phase === "poll10-genlayer") return pollTenGenLayer();
+  if (phase === "complete10") return relayPassAndClaim();
   if (phase === "post70") return postJobs(70, 30, 0);
+  if (phase === "sync-db") return syncFromChainToSupabase();
   if (phase === "balances") {
     for (const target of [state.client, ...state.freelancers]) {
       const balance = await publicClient.getBalance({ address: target.address });
@@ -207,7 +310,7 @@ async function main() {
     }
     return;
   }
-  throw new Error("Usage: npx tsx scripts/stress-workproof.ts wallets|fund|balances|post30|submit10|post70");
+  throw new Error("Usage: npx tsx scripts/stress-workproof.ts wallets|fund|balances|post30|submit10|verify10-genlayer|poll10-genlayer|complete10|post70|sync-db");
 }
 
 main().catch((error) => {

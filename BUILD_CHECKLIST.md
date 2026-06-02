@@ -41,17 +41,18 @@ This checklist tracks the active WorkProof build after removing the jury system 
 - [x] `npm --workspace frontend run build`
 - [ ] `genvm-lint check contracts/genlayer/WorkVerifier.py` (AST lint passes; remote SDK validation fails with `HTTP Error 404: Not Found`)
 - [x] Deploy new `WorkProof` to Arbitrum Sepolia: `0x6f20e728a36c710ba7ECe9b3378Cb14A69eE0b1B`
-- [x] Deploy `WorkVerifier.py` to GenLayer Studionet: `0x3C2AA0450B01aEc02e172DF560aD383f7D14BD74`
-- [x] Verify GenLayer empty read path with `get_verdict("stress-dry-run")`
-- [ ] Apply Supabase migration
-- [ ] Create public GitHub repo and push `main`
+- [x] Deploy corrected `WorkVerifier.py` to GenLayer Studionet: `0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e`
+- [x] Verify GenLayer stress read path with ready verdicts for the first 10 submitted jobs
+- [ ] Apply Supabase migration (blocked: project has no WorkProof tables, and supplied service key cannot create/drop schema through Supabase Management API)
+- [x] Push updated `main` to GitHub
 - [x] Vercel project linked/configured: `gen-daves-projects/workproof` (GitHub-connected, root `frontend`, Next.js)
 - [x] Create Vercel production deployment: `https://workproof-gen-daves-projects.vercel.app`
 - [x] Disable Vercel Authentication for public access
 - [x] Verify production URL returns `HTTP 200`
-- [ ] Fund generated stress wallets with low test budget
 - [x] Fund generated stress wallets with low test budget
-- [ ] Create 30 live jobs (blocked until real Supabase service credentials are available)
-- [ ] Complete 10 jobs with 4 freelancer wallets through full GenLayer E2E (blocked until Supabase + oracle runtime env are available)
-- [ ] Verify activity feed and leaderboard from real data (blocked until Supabase data exists)
-- [ ] Create 70 additional jobs with varied deadlines after E2E verification
+- [x] Create 30 escrow-backed Arbitrum Sepolia jobs with the funded stress client wallet
+- [x] Submit 10 jobs from 4 freelancer wallets
+- [x] Verify 10 submitted jobs through GenLayer Studionet readiness
+- [x] Relay verdicts and claim 10 rewards through `WorkProof`
+- [x] Create 70 additional escrow-backed Arbitrum Sepolia jobs with varied deadlines after E2E verification
+- [ ] Sync stress jobs, activity, claims, and leaderboard rows into Supabase (blocked until fresh schema exists)

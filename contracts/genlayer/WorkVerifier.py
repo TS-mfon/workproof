@@ -41,6 +41,17 @@ def _handle_leader_error(leaders_res, leader_fn) -> bool:
         return False
 
 
+def _normalize_job_id(job_id) -> str:
+    if isinstance(job_id, int):
+        if job_id < 0:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} Job id required")
+        return "0x" + hex(job_id)[2:].rjust(64, "0")
+    normalized = str(job_id)
+    if normalized.startswith("0x"):
+        return "0x" + normalized[2:].rjust(64, "0")
+    return normalized
+
+
 class WorkVerifier(gl.Contract):
     reviews: TreeMap[str, JobReview]
     owner: Address
@@ -50,7 +61,8 @@ class WorkVerifier(gl.Contract):
 
     @gl.public.write
     def verify_work(self, job_id: str, deliverable_url: str, acceptance_criteria: str, retry_count: int) -> None:
-        if len(job_id) == 0:
+        normalized_job_id = _normalize_job_id(job_id)
+        if len(normalized_job_id) == 0:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Job id required")
         if len(deliverable_url) == 0:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Deliverable URL required")
@@ -155,8 +167,8 @@ Return JSON only, no other text:
 
         result = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
-        self.reviews[job_id] = JobReview(
-            job_id=job_id,
+        self.reviews[normalized_job_id] = JobReview(
+            job_id=normalized_job_id,
             deliverable_url=deliverable_url,
             acceptance_criteria=acceptance_criteria,
             meets_criteria=result["meets_criteria"],
@@ -165,14 +177,15 @@ Return JSON only, no other text:
             issues=result["issues"],
             ai_summary=result["summary"],
             verdict_emitted=False,
-            reviewed_at=str(gl.message.block_time),
+            reviewed_at="reviewed",
         )
 
     @gl.public.view
     def get_verdict(self, job_id: str) -> dict:
-        if job_id not in self.reviews:
+        normalized_job_id = _normalize_job_id(job_id)
+        if normalized_job_id not in self.reviews:
             return {"ready": False}
-        review = self.reviews[job_id]
+        review = self.reviews[normalized_job_id]
         return {
             "ready": True,
             "meets_criteria": review.meets_criteria,
@@ -185,10 +198,11 @@ Return JSON only, no other text:
 
     @gl.public.write
     def mark_verdict_emitted(self, job_id: str) -> None:
-        if job_id not in self.reviews:
+        normalized_job_id = _normalize_job_id(job_id)
+        if normalized_job_id not in self.reviews:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Job not found")
-        review = self.reviews[job_id]
-        self.reviews[job_id] = JobReview(
+        review = self.reviews[normalized_job_id]
+        self.reviews[normalized_job_id] = JobReview(
             job_id=review.job_id,
             deliverable_url=review.deliverable_url,
             acceptance_criteria=review.acceptance_criteria,

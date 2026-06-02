@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Bot, CheckCircle2, Clock3, LockKeyhole, Sparkles, Zap } from "lucide-react";
+import { ArrowRight, Bot, CheckCircle2, FileCheck2, LockKeyhole, Network, ShieldCheck, Sparkles, Wallet, Zap } from "lucide-react";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { JobCard } from "@/components/jobs/JobCard";
 import { LeaderboardRow } from "@/components/leaderboard/LeaderboardRow";
@@ -18,102 +18,135 @@ export default async function HomePage() {
   const [stats, jobs, users, activities] = await Promise.all([getStats(), getJobs(6), getUsers(5), getActivities(10)]);
   return (
     <>
-      <section className="glass-band overflow-hidden">
-        <div className="shell grid min-h-[650px] items-center gap-10 py-14 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="animate-rise">
-            <p className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1 text-sm font-black uppercase text-blue-700">
+      <section className="hero-stage overflow-hidden">
+        <div className="shell hero-grid py-16 lg:py-20">
+          <div className="animate-rise max-w-3xl">
+            <p className="eyebrow">
               <Sparkles size={15} /> Welcome to an Autonomous Freelancing Protocol.
             </p>
-            <h1 className="mt-6 max-w-5xl text-5xl font-black leading-[1.03] tracking-normal text-blue-950 md:text-7xl">
-              Hire and get hired. AI decides who gets paid.
+            <h1 className="mt-6 text-5xl font-black leading-[1.02] text-blue-950 md:text-7xl">
+              Work is verified before escrow moves.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-600">
-              Clients lock ETH, freelancers ship work, and GenLayer validator consensus checks the deliverable against signed acceptance criteria before escrow resolves.
+              Post jobs with measurable acceptance criteria, lock ETH on Arbitrum Sepolia, and let GenLayer validator consensus decide whether submitted work deserves payment.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link className="btn" href="/jobs">Browse Jobs <ArrowRight size={18} /></Link>
               <Link className="btn secondary" href="/jobs/post">Post a Job</Link>
             </div>
+            <div className="mt-10 grid gap-3 sm:grid-cols-3">
+              <div className="trust-chip"><LockKeyhole size={17} /> ETH locked first</div>
+              <div className="trust-chip"><Bot size={17} /> GenLayer reviewed</div>
+              <div className="trust-chip"><ShieldCheck size={17} /> No manual release</div>
+            </div>
           </div>
-          <div className="animate-float panel elevated p-5">
-            <div className="rounded-lg bg-blue-950 p-5 text-white">
-              <div className="flex items-center justify-between">
-                <span className="logo-mark">W</span>
-                <span className="rounded-full bg-sky-400/20 px-3 py-1 text-xs font-bold text-sky-100">Arbitrum Sepolia</span>
+
+          <div className="protocol-visual">
+            <div className="visual-topbar">
+              <span className="logo-mark">W</span>
+              <div>
+                <p className="text-sm font-black text-blue-950">WorkProof Escrow</p>
+                <p className="text-xs font-bold text-slate-500">Arbitrum Sepolia + GenLayer</p>
               </div>
-              <h2 className="mt-8 text-3xl font-black">Autonomous escrow state</h2>
-              <div className="mt-6 grid gap-3">
-                {[
-                  ["Escrow locked", "Client funds secured onchain"],
-                  ["Work submitted", "Oracle triggers GenLayer review"],
-                  ["Verdict ready", "Reward claimable or retry required"]
-                ].map(([title, copy]) => (
-                  <div className="rounded-md border border-white/10 bg-white/10 p-4" key={title}>
-                    <p className="font-bold">{title}</p>
-                    <p className="mt-1 text-sm text-blue-100">{copy}</p>
+              <span className="ml-auto rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">Live</span>
+            </div>
+            <div className="mt-6 grid gap-4">
+              {[
+                ["01", "Client funds escrow", "Acceptance criteria and ETH are committed onchain.", Wallet],
+                ["02", "Freelancer submits URL", "A public deliverable is attached to the active job.", FileCheck2],
+                ["03", "Validators decide", "GenLayer checks the work and exposes a verdict.", Network],
+                ["04", "Reward is claimable", "Approved work becomes payable to the freelancer.", CheckCircle2]
+              ].map(([num, title, copy, Icon]) => (
+                <div className="process-row" key={String(title)}>
+                  <span>{num as string}</span>
+                  <Icon className="text-blue-600" size={20} />
+                  <div>
+                    <p className="font-black text-blue-950">{title as string}</p>
+                    <p className="text-sm leading-6 text-slate-600">{copy as string}</p>
                   </div>
-                ))}
+                </div>
+              ))}
+            </div>
+            <div className="mt-6 rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-black uppercase text-blue-700">Autonomous status</p>
+                <p className="text-sm font-black text-blue-950">Under AI review</p>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+                <div className="h-full w-3/4 rounded-full bg-blue-600" />
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="shell -mt-10 grid gap-4 pb-12 md:grid-cols-4">
-        <div className="metric-card"><p>Total Jobs Posted</p><b className="text-3xl text-blue-950">{stats.totalJobs}</b></div>
-        <div className="metric-card"><p>Total ETH Escrowed</p><b className="text-3xl text-blue-950"><EthAmount wei={stats.totalEscrowed} /></b></div>
-        <div className="metric-card"><p>Jobs Completed</p><b className="text-3xl text-blue-950">{stats.completed}</b></div>
-        <div className="metric-card"><p>Active Freelancers</p><b className="text-3xl text-blue-950">{stats.activeFreelancers}</b></div>
+      <section className="shell stats-strip">
+        <div className="metric-card"><p>Total Jobs Posted</p><b>{stats.totalJobs}</b></div>
+        <div className="metric-card"><p>Total ETH Escrowed</p><b><EthAmount wei={stats.totalEscrowed} /></b></div>
+        <div className="metric-card"><p>Jobs Completed</p><b>{stats.completed}</b></div>
+        <div className="metric-card"><p>Active Freelancers</p><b>{stats.activeFreelancers}</b></div>
       </section>
 
-      <section className="shell py-12">
-        <div className="mb-6 flex items-end justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase text-blue-600">How it works</p>
-            <h2 className="mt-2 text-3xl font-black text-blue-950">Five steps, no manual release.</h2>
+      <section className="section-band">
+        <div className="shell py-14">
+          <div className="section-heading">
+            <p>How it works</p>
+            <h2>Five steps, no manual payment release.</h2>
+            <span>Every state is either read from Supabase metadata or the deployed escrow contract.</span>
           </div>
-        </div>
-        <div className="grid-auto">
-          {steps.map(([step, copy], index) => (
-            <div className="panel p-5 transition hover:-translate-y-1 hover:border-blue-300" key={step}>
-              <div className="flex h-11 w-11 items-center justify-center rounded-md bg-blue-600 text-lg font-black text-white">{index + 1}</div>
-              <h3 className="mt-5 text-xl font-black text-blue-950">{step}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{copy}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="shell py-10">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-black uppercase text-blue-600">Live market</p>
-            <h2 className="text-3xl font-black text-blue-950">Featured Jobs</h2>
+          <div className="mt-8 grid-auto">
+            {steps.map(([step, copy], index) => (
+              <div className="step-card" key={step}>
+                <div className="step-number">{index + 1}</div>
+                <h3>{step}</h3>
+                <p>{copy}</p>
+              </div>
+            ))}
           </div>
-          <Link className="btn secondary" href="/jobs">View all jobs</Link>
-        </div>
-        {jobs.length ? <div className="grid-auto">{jobs.map((job) => <JobCard key={job.job_id_onchain} job={job} />)}</div> : <div className="panel p-8">No open jobs yet.</div>}
-      </section>
-
-      <section className="shell grid gap-8 py-10 lg:grid-cols-2">
-        <div>
-          <h2 className="mb-4 text-3xl font-black text-blue-950">Reputation Leaders</h2>
-          <div className="panel table-wrap overflow-hidden"><table><tbody>{users.map((user, i) => <LeaderboardRow key={user.wallet_address} user={user} rank={i + 1} />)}</tbody></table></div>
-        </div>
-        <div>
-          <h2 className="mb-4 text-3xl font-black text-blue-950">Recent Activity</h2>
-          <ActivityFeed activities={activities} />
         </div>
       </section>
 
       <section className="shell py-14">
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="panel p-6"><LockKeyhole className="text-blue-600" /><h3 className="mt-4 text-xl font-black">Escrow first</h3><p className="mt-2 text-slate-600">Every job starts with real ETH locked in the contract.</p></div>
-          <div className="panel p-6"><Bot className="text-blue-600" /><h3 className="mt-4 text-xl font-black">GenLayer review</h3><p className="mt-2 text-slate-600">Validators compare the submitted deliverable to client criteria.</p></div>
-          <div className="panel p-6"><CheckCircle2 className="text-blue-600" /><h3 className="mt-4 text-xl font-black">Claimable rewards</h3><p className="mt-2 text-slate-600">Approved work becomes claimable without client discretion.</p></div>
+        <div className="section-heading row">
+          <div>
+            <p>Live market</p>
+            <h2>Featured jobs</h2>
+            <span>Only live records are shown. No fake production cards.</span>
+          </div>
+          <Link className="btn secondary" href="/jobs">View all jobs</Link>
         </div>
-        <div className="mt-6 panel flex flex-wrap items-center justify-between gap-4 bg-blue-950 p-6 text-white">
-          <div><p className="font-black">Ready to put work onchain?</p><p className="text-blue-100">Post a job with measurable acceptance criteria.</p></div>
+        {jobs.length ? <div className="mt-8 grid-auto">{jobs.map((job) => <JobCard key={job.job_id_onchain} job={job} />)}</div> : <div className="empty-state mt-8">No open jobs yet. Post the first job to create the first marketplace record.</div>}
+      </section>
+
+      <section className="shell grid gap-8 py-10 lg:grid-cols-[0.95fr_1.05fr]">
+        <div>
+          <div className="section-heading compact">
+            <p>Leaderboard</p>
+            <h2>Reputation leaders</h2>
+          </div>
+          <div className="panel table-wrap mt-5 overflow-hidden"><table><tbody>{users.map((user, i) => <LeaderboardRow key={user.wallet_address} user={user} rank={i + 1} />)}</tbody></table></div>
+        </div>
+        <div>
+          <div className="section-heading compact">
+            <p>Activity</p>
+            <h2>Recent protocol events</h2>
+          </div>
+          <div className="mt-5"><ActivityFeed activities={activities} /></div>
+        </div>
+      </section>
+
+      <section className="shell py-14">
+        <div className="section-heading">
+          <p>Why WorkProof</p>
+          <h2>Escrow UX built for clear outcomes.</h2>
+        </div>
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          <div className="feature-card"><LockKeyhole /><h3>Escrow first</h3><p>Every job starts with real ETH locked in the deployed contract.</p></div>
+          <div className="feature-card"><Bot /><h3>GenLayer review</h3><p>Validators compare the submitted deliverable to signed criteria.</p></div>
+          <div className="feature-card"><CheckCircle2 /><h3>Claimable rewards</h3><p>Approved work becomes payable without client discretion.</p></div>
+        </div>
+        <div className="cta-band mt-8">
+          <div><p>Ready to put work onchain?</p><span>Post a job with measurable acceptance criteria and autonomous review.</span></div>
           <Link className="btn" href="/jobs/post"><Zap size={16} /> Start jobbing</Link>
         </div>
       </section>

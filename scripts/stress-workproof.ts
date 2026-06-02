@@ -27,6 +27,7 @@ const skipDb = process.env.STRESS_SKIP_DB === "1" || process.env.STRESS_SKIP_DB 
 const statePath = path.join(process.cwd(), ".stress-wallets.local.json");
 
 const domains = ["frontend", "smart-contracts", "design", "content", "marketing"];
+const statusLabels = ["Open", "Active", "UnderReview", "Failed", "Passed", "Complete", "Refunded"] as const;
 const titles = [
   "Landing Page Refresh",
   "Escrow Status Widget",
@@ -268,25 +269,103 @@ async function pollTenGenLayer(limit = 10) {
 
 async function syncFromChainToSupabase() {
   const address = requireEnv(contractAddress, "WORKPROOF_CONTRACT") as Hex;
-  const state = loadOrCreateWallets();
+  if (skipDb) throw new Error("sync-db requires Supabase; unset STRESS_SKIP_DB");
+  const supabase = createClient(requireEnv(supabaseUrl, "SUPABASE_URL"), requireEnv(supabaseKey, "SUPABASE_SERVICE_KEY"), { auth: { persistSession: false } });
   const ids = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJobIds" });
+  const jobsById = new Map<string, true>();
+
   for (let i = 0; i < ids.length; i++) {
     const job = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJob", args: [ids[i]] });
-    const freelancer = job.assignedFreelancer === "0x0000000000000000000000000000000000000000" ? undefined : job.assignedFreelancer;
-    await insertSupabaseJob({
-      jobId: ids[i],
-      client: state.client.address,
-      freelancer,
+    jobsById.set(ids[i], true);
+    const freelancer = job.assignedFreelancer === "0x0000000000000000000000000000000000000000" ? null : job.assignedFreelancer;
+    await supabase.from("users").upsert({ wallet_address: job.client, role: "client", jobs_posted: 1 }, { onConflict: "wallet_address" });
+    if (freelancer) await supabase.from("users").upsert({ wallet_address: freelancer, role: "freelancer" }, { onConflict: "wallet_address" });
+
+    const claimed = await publicClient.readContract({ address, abi: workProofAbi, functionName: "rewardClaimed", args: [ids[i]] });
+    const score = await publicClient.readContract({ address, abi: workProofAbi, functionName: "verdictQualityScore", args: [ids[i]] });
+    const status = statusLabels[Number(job.status)] ?? "Open";
+    const { error } = await supabase.from("jobs").upsert({
+      job_id_onchain: ids[i],
+      client_wallet: job.client,
+      freelancer_wallet: freelancer,
+      assigned_to_wallet: freelancer,
       title: job.title,
-      description: `Synced onchain stress job ${i + 1}.`,
-      acceptance: job.acceptanceCriteria,
+      description: `Stress-test ${job.domain} job ${i + 1}. This job was synced from the deployed WorkProof contract after the escrow stress run.`,
+      spec_ipfs_hash: job.specIpfsHash || null,
+      acceptance_criteria: job.acceptanceCriteria,
       domain: job.domain,
-      amountWei: job.escrowAmount,
-      deadline: job.deadline,
-      txHash: "0x0000000000000000000000000000000000000000000000000000000000000000"
-    });
+      escrow_amount_wei: job.escrowAmount.toString(),
+      reward_amount_wei: job.rewardAmount.toString(),
+      status,
+      retry_count: Number(job.retryCount),
+      deliverable_url: job.deliverableUrl || null,
+      ai_verdict: Number(score) > 0 ? { source: "GenLayer stress run", quality_score: Number(score), summary: "Stress verification reached GenLayer readiness and was relayed through WorkProof." } : null,
+      deadline: new Date(Number(job.deadline) * 1000).toISOString(),
+      created_at: new Date(Number(job.createdAt) * 1000).toISOString(),
+      completed_at: claimed ? new Date().toISOString() : null
+    }, { onConflict: "job_id_onchain" });
+    if (error) throw error;
+    if (claimed && freelancer) {
+      await supabase.from("claim_queue").upsert({
+        job_id_onchain: ids[i],
+        freelancer_wallet: freelancer,
+        reward_wei: job.rewardAmount.toString(),
+        quality_score: Number(score),
+        ai_summary: "Reward claimed after GenLayer stress verification and oracle relay.",
+        reputation_pts: Number(score) >= 90 ? 60 : Number(score) >= 75 ? 40 : Number(score) >= 60 ? 25 : 10,
+        status: "claimed",
+        claimed_at: new Date().toISOString()
+      }, { onConflict: "job_id_onchain" });
+    }
     console.log(`synced ${ids[i]} ${job.title}`);
   }
+
+  const profiles = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getTopFreelancers", args: [100n] });
+  for (const profile of profiles) {
+    if (profile.wallet === "0x0000000000000000000000000000000000000000") continue;
+    await supabase.from("users").upsert({
+      wallet_address: profile.wallet,
+      role: "freelancer",
+      domains: profile.domain ? [profile.domain] : null,
+      reputation_pts: Number(profile.reputationPoints),
+      jobs_completed: Number(profile.jobsCompleted),
+      jobs_failed: Number(profile.jobsFailed),
+      total_earned_wei: profile.totalEarned.toString()
+    }, { onConflict: "wallet_address" });
+  }
+
+  const latest = await publicClient.getBlockNumber();
+  const fromBlock = process.env.WORKPROOF_FROM_BLOCK ? BigInt(process.env.WORKPROOF_FROM_BLOCK) : latest > 250000n ? latest - 250000n : 0n;
+  const logs = await publicClient.getLogs({ address, fromBlock, toBlock: "latest" });
+  const events = parseEventLogs({
+    abi: workProofAbi,
+    logs,
+    eventName: ["JobPosted", "JobAccepted", "WorkSubmitted", "VerdictReceived", "RewardClaimed", "JobRefunded", "ReputationAdded"]
+  });
+  for (const event of events) {
+    const args = event.args as Record<string, unknown>;
+    const eventType =
+      event.eventName === "JobPosted" ? "job_posted" :
+      event.eventName === "JobAccepted" ? "job_accepted" :
+      event.eventName === "WorkSubmitted" ? "work_submitted" :
+      event.eventName === "VerdictReceived" ? ((args.passed as boolean) ? "verdict_pass" : "verdict_fail") :
+      event.eventName === "RewardClaimed" ? "reward_claimed" :
+      event.eventName === "JobRefunded" ? "refund_issued" :
+      "reputation_added";
+    const jobId = String(args.jobId ?? "");
+    if (jobId && !jobsById.has(jobId) && event.eventName !== "ReputationAdded") continue;
+    await supabase.from("activity_log").upsert({
+      event_type: eventType,
+      job_id: jobId || null,
+      actor_wallet: String(args.client ?? args.freelancer ?? ""),
+      target_wallet: String(args.assignedTo ?? ""),
+      metadata: Object.fromEntries(Object.entries(args).map(([key, value]) => [key, typeof value === "bigint" ? value.toString() : value])),
+      tx_hash: event.transactionHash,
+      created_at: new Date().toISOString()
+    }, { onConflict: "tx_hash,event_type" });
+  }
+
+  console.log(`synced ${ids.length} jobs and ${events.length} events to Supabase`);
 }
 
 async function main() {

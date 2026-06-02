@@ -43,7 +43,7 @@ export function JobFilters({ jobs }: { jobs: Job[] }) {
       </div>
       {filtered.length === 0 ? (
         <div className="panel p-10 text-center">
-          <h2 className="text-2xl font-black text-blue-950">No job posted yet</h2>
+          <h2 className="text-2xl font-black uppercase tracking-[0.08em] text-white">No job posted yet</h2>
           <a className="btn mt-4" href="/jobs/post">Post the first job</a>
         </div>
       ) : (

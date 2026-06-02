@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
+import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { Providers } from "@/components/shared/Providers";
+
+const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken" });
 
 export const metadata: Metadata = {
   title: "WorkProof",
@@ -22,7 +25,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body className={hanken.variable}>
         <Providers>
           <Navbar />
           <main>{children}</main>

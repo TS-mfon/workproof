@@ -62,6 +62,8 @@ export const workProofAbi = [
     outputs: []
   },
   { type: "function", name: "oracle", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "rewardClaimed", stateMutability: "view", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "verdictQualityScore", stateMutability: "view", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [{ type: "uint256" }] },
   { type: "function", name: "getJobIds", stateMutability: "view", inputs: [], outputs: [{ type: "bytes32[]" }] },
   {
     type: "function",

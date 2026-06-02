@@ -22,12 +22,14 @@ This checklist tracks the active WorkProof build after removing the jury system 
 - [x] Users, jobs, applications, activity, claim queue, admin actions, and reputation history tables exist
 - [x] Juror case/vote tables removed from the fresh migration
 - [x] RLS policies retained for public reads and service-role writes
+- [x] Reset migration added for a direct Postgres schema wipe/recreate
 
 ## Frontend
-- [x] Blue/white visual system added
+- [x] Kinetic Protocol dark/cyan visual system added
 - [x] Site logo and favicon added
-- [x] Landing page redesigned with motion and richer live-state sections
-- [x] Job board and job cards restyled
+- [x] Landing page simplified with clean live stats, featured jobs, leaderboard, and activity
+- [x] Job marketplace and job cards restyled with glassmorphism, cyan glow states, and live network header
+- [x] Frontend data reads fall back to real deployed contract/event data when Supabase tables are missing
 - [x] Leaderboard no longer includes juror tab
 - [x] Jury route removed
 - [x] Admin route remains wallet-gated but is no longer visible in public navigation
@@ -55,4 +57,5 @@ This checklist tracks the active WorkProof build after removing the jury system 
 - [x] Verify 10 submitted jobs through GenLayer Studionet readiness
 - [x] Relay verdicts and claim 10 rewards through `WorkProof`
 - [x] Create 70 additional escrow-backed Arbitrum Sepolia jobs with varied deadlines after E2E verification
+- [x] Verify `/jobs` renders real onchain stress jobs through the fallback path
 - [ ] Sync stress jobs, activity, claims, and leaderboard rows into Supabase (blocked until fresh schema exists)

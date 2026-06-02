@@ -85,7 +85,14 @@ Current Supabase status:
 - `/home/sudodave/buildenv/.env` contains `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`.
 - The supplied project currently has no `public.users` table, so the schema has not been applied yet.
 - The Supabase REST service role key cannot create/drop schemas through the Management API. A Supabase access token or direct Postgres connection string is required to wipe/create the database schema.
-- Until the schema exists, production UI reads intentionally render empty states instead of fake data.
+- Until the schema exists, production UI falls back to real onchain WorkProof jobs and reputation reads instead of fake data.
+
+Fresh schema reset when a direct database URL is available:
+
+```bash
+SUPABASE_DB_URL=<postgres connection string> npm run supabase:reset
+npm run stress:sync-db
+```
 
 ## Oracle
 
@@ -124,7 +131,7 @@ Production deployment:
 - Production Vercel URL returns `HTTP 200`.
 - Generated stress wallets were funded on Arbitrum Sepolia for the low-budget stress run.
 - Onchain stress run posted 100 escrow-backed jobs, submitted 10 jobs from 4 freelancer wallets, verified all 10 through GenLayer readiness, relayed successful verdicts, and claimed the 10 rewards.
-- Live UI-backed stress data sync is pending a fresh Supabase schema, because the current database has no WorkProof tables.
+- Live UI now displays stress jobs through the onchain fallback. Supabase-backed activity/claim table sync is pending a fresh schema, because the current database has no WorkProof tables.
 - The protocol no longer deploys `JuryRegistry`; GenLayer validators are the only work review layer.
 
 ## Final Verification Checklist
@@ -146,6 +153,7 @@ npm run stress:verify10-genlayer
 npm run stress:poll10-genlayer
 npm run stress:complete10
 npm run stress:post70
+npm run stress:sync-db
 ```
 
 The stress scripts generate ignored local test wallets, fund them from the deployer, create escrow-backed jobs, submit public deliverables, and rely on the oracle plus GenLayer Studionet to resolve submitted jobs.

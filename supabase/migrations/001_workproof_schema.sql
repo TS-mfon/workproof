@@ -102,6 +102,7 @@ create index if not exists idx_jobs_client on jobs(client_wallet);
 create index if not exists idx_jobs_freelancer on jobs(freelancer_wallet);
 create index if not exists idx_activity_job on activity_log(job_id);
 create index if not exists idx_activity_created_at on activity_log(created_at desc);
+create unique index if not exists idx_activity_tx_type on activity_log(tx_hash, event_type) where tx_hash is not null;
 create index if not exists idx_claim_queue_wallet on claim_queue(freelancer_wallet);
 
 alter table users enable row level security;

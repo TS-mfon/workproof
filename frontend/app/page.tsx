@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Bot, FileCheck2, LockKeyhole, Radio, ShieldCheck, Zap } from "lucide-react";
+import { ArrowRight, Bot, CheckCircle2, FileCheck2, LockKeyhole, ShieldCheck, Zap } from "lucide-react";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { JobCard } from "@/components/jobs/JobCard";
 import { LeaderboardRow } from "@/components/leaderboard/LeaderboardRow";
@@ -18,23 +18,23 @@ export default async function HomePage() {
         <div className="shell hero-grid">
           <div className="animate-rise max-w-3xl">
             <p className="eyebrow"><span className="live-dot" /> Live autonomous escrow</p>
-            <h1 className="mt-6 text-5xl font-black uppercase leading-[0.96] tracking-[0.08em] text-white md:text-7xl">
+            <h1 className="mt-6 text-5xl font-black leading-[1.02] text-slate-950 md:text-7xl">
               Work verified before payment.
             </h1>
-            <p className="mt-6 max-w-xl text-lg leading-8 text-slate-400">
-              Clients lock ETH. Freelancers submit work. GenLayer validators decide the verdict.
+            <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">
+              A trust-first escrow marketplace where clients lock funds, freelancers submit clear deliverables, and GenLayer verifies completion against written criteria.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link className="btn" href="/jobs">Enter Marketplace <ArrowRight size={18} /></Link>
-              <Link className="btn secondary" href="/jobs/post">Post Job</Link>
+              <Link className="btn" href="/jobs">Browse Jobs <ArrowRight size={18} /></Link>
+              <Link className="btn secondary" href="/jobs/post">Post a Job</Link>
             </div>
           </div>
 
           <div className="protocol-visual">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Network stream</p>
-                <h2 className="mt-2 text-2xl font-black uppercase tracking-[0.08em] text-white">WorkProof</h2>
+                <p className="text-xs font-black uppercase text-blue-600">Escrow flow</p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">From task to claim</h2>
               </div>
               <span className="live-pill"><span className="live-dot" /> Live</span>
             </div>
@@ -48,8 +48,8 @@ export default async function HomePage() {
                 <div className="process-row" key={String(label)}>
                   <span><Icon size={18} /></span>
                   <div>
-                    <p className="font-black uppercase tracking-[0.08em] text-white">{label as string}</p>
-                    <p className="text-sm text-slate-400">{copy as string}</p>
+                    <p className="font-black text-slate-950">{label as string}</p>
+                    <p className="text-sm text-slate-600">{copy as string}</p>
                   </div>
                 </div>
               ))}
@@ -79,15 +79,15 @@ export default async function HomePage() {
             <div className="featured-job">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Featured job</p>
-                  <h3 className="mt-4 text-3xl font-black uppercase tracking-[0.06em] text-white">{featured.title}</h3>
+                  <p className="text-xs font-black uppercase text-blue-600">Featured job</p>
+                  <h3 className="mt-4 text-3xl font-black text-slate-950">{featured.title}</h3>
                 </div>
-                <Radio className="text-cyan-300" />
+                <CheckCircle2 className="text-blue-600" />
               </div>
-              <p className="mt-5 line-clamp-3 text-slate-400">{featured.description}</p>
+              <p className="mt-5 line-clamp-3 text-slate-600">{featured.description}</p>
               <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
-                <p className="text-3xl font-black text-cyan-300"><EthAmount wei={featured.reward_amount_wei} /></p>
-                <Link className="btn" href={`/jobs/${featured.job_id_onchain}`}>Apply Now <Zap size={16} /></Link>
+                <p className="text-3xl font-black text-blue-600"><EthAmount wei={featured.reward_amount_wei} /></p>
+                <Link className="btn" href={`/jobs/${featured.job_id_onchain}`}>Claim Task <Zap size={16} /></Link>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">

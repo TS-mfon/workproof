@@ -41,6 +41,39 @@ const titles = [
   "Mobile Navigation"
 ];
 
+const writingJobs = [
+  ["Homepage Trust Copy for AI Escrow", "Write concise homepage copy that explains WorkProof to clients who are new to crypto escrow. The tone should feel professional, clear, and trust-first, avoiding hype and jargon."],
+  ["Freelancer Onboarding Email Sequence", "Create a three-email onboarding sequence for freelancers joining WorkProof. The sequence should explain how to find jobs, submit proof, and claim rewards after GenLayer verification."],
+  ["Client Guide to Acceptance Criteria", "Draft a practical guide that teaches clients how to write measurable acceptance criteria for writing, design, frontend, and smart contract jobs."],
+  ["Protocol FAQ for Non-Technical Clients", "Write a plain-English FAQ that answers common client concerns about escrow, AI verification, retries, refunds, and what happens when a deadline passes."],
+  ["Blog Post: Why Autonomous Escrow Matters", "Write a polished long-form blog post explaining the problem with traditional freelance marketplaces and how autonomous escrow improves trust for both sides."],
+  ["Case Study: Marketing Copy Task", "Create a fictional but realistic case study showing how a client posts a marketing-copy job and a freelancer completes it through WorkProof."],
+  ["Landing Page Comparison Section", "Write a comparison section for WorkProof versus traditional freelance platforms, focusing on fees, payment disputes, acceptance criteria, and transparent reputation."],
+  ["Arbitrum Sepolia Demo Script", "Write a short demo script for a 90-second product walkthrough showing job posting, submission, GenLayer verification, and reward claim."],
+  ["Developer Documentation Introduction", "Write an introductory documentation page for developers integrating WorkProof job data or contract events into their own dashboards."],
+  ["Marketplace Empty State Copy", "Create professional empty-state copy for job board, activity feed, claim page, and leaderboard screens without sounding generic or fake."],
+  ["Freelancer Profile Bio Pack", "Write ten sample freelancer profile bios for content, frontend, design, marketing, and smart contract specialists on WorkProof."],
+  ["Investor One-Pager Copy", "Draft copy for a one-page investor summary covering problem, product, market, technical moat, and buildathon traction."],
+  ["Security Explainer for Escrow", "Write a clear explainer describing escrow locking, pull payments, oracle whitelist, and why funds are not manually released by admins."],
+  ["GenLayer Verification Explainer", "Write copy explaining how GenLayer validators review a deliverable against acceptance criteria and why consensus is stronger than a single API call."],
+  ["Launch Announcement Thread", "Write a polished 8-post social launch thread announcing WorkProof for builders, freelancers, DAOs, and clients."],
+  ["Claim Rewards Help Article", "Write a help article that explains when rewards become claimable, how to connect a wallet, and what to do if a claim transaction fails."],
+  ["Retry Workflow Help Article", "Write a help article explaining failed AI review, retry limits, improvement guidance, and how freelancers can resubmit work."],
+  ["DAO Grants Use Case Copy", "Write a use-case page explaining how DAOs can use WorkProof to escrow grant milestones and verify public deliverables."],
+  ["Technical Glossary for Users", "Create a glossary defining escrow, deliverable URL, acceptance criteria, GenLayer, Arbitrum Sepolia, oracle, reputation, and claim queue."],
+  ["Pricing and Fee Positioning Copy", "Write website copy that positions WorkProof as a lower-fee, transparent alternative to centralized freelance platforms."],
+  ["Quality Bar Rubric", "Create a quality rubric for reviewing written deliverables, including clarity, structure, accuracy, tone, evidence, and completeness."],
+  ["Client Job Template Pack", "Write five reusable job templates for blog post, landing page copy, technical documentation, email sequence, and social content tasks."],
+  ["Freelancer Submission Checklist", "Create a checklist freelancers can use before submitting a deliverable URL for GenLayer review."],
+  ["Dispute-Free Freelancing Article", "Write an article explaining how strong upfront criteria reduce subjective disputes and improve freelancer-client relationships."],
+  ["Admin-Free Protocol Copy", "Write concise product copy explaining that WorkProof has no manual payment approvals while still preserving emergency controls."],
+  ["Leaderboard Trust Score Explainer", "Write copy explaining reputation points, completed jobs, total earned, win rate, and how clients should interpret leaderboard rank."],
+  ["Mobile App Microcopy", "Write polished microcopy for mobile UI states: posting, applying, submitting, under review, passed, failed, refunded, and claimed."],
+  ["Buildathon Pitch Narrative", "Write a 3-minute pitch narrative for WorkProof covering problem, demo flow, technical architecture, and judging alignment."],
+  ["Oracle Status Page Copy", "Write copy for an oracle monitor explaining heartbeat, wallet balance, pending verdicts, deadline checks, and failure states."],
+  ["Content Style Guide", "Create a concise WorkProof writing style guide covering voice, tone, terminology, formatting, and examples of preferred copy."]
+] as const;
+
 type WalletState = {
   client: { address: Hex; privateKey: Hex };
   freelancers: Array<{ address: Hex; privateKey: Hex }>;
@@ -104,6 +137,24 @@ function makeJob(index: number, assignedTo?: Hex) {
     "Deliverable must be accessible by public URL."
   ].join("\n");
   return { domain, title, deadline, description, acceptance, assignedTo };
+}
+
+function makeWritingJob(index: number) {
+  const [title, brief] = writingJobs[index % writingJobs.length];
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 172800 + index * 2400);
+  const description = brief;
+  const acceptance = [
+    `PROJECT BRIEF:\n${brief}`,
+    "ACCEPTANCE CRITERIA:",
+    "- Deliverable must be written in clear, polished English for a professional Web3 freelance platform.",
+    "- Deliverable must directly address WorkProof's escrow, acceptance criteria, GenLayer verification, and claim/refund flow where relevant.",
+    "- Deliverable must include a strong headline or title, structured sections, and scannable formatting.",
+    "- Deliverable must avoid filler, generic AI-sounding phrasing, unsupported claims, and fake statistics.",
+    "- Deliverable must be at least 700 words unless the requested format is microcopy, FAQ, thread, or checklist.",
+    "- Deliverable must include concrete examples, user-facing wording, and a final revision pass for grammar and clarity.",
+    "- Deliverable must be accessible by public URL and include enough context for GenLayer validators to verify every criterion."
+  ].join("\n");
+  return { domain: "content", title: `${title} #${index + 1}`, deadline, description, acceptance, assignedTo: undefined };
 }
 
 async function insertSupabaseJob(input: {
@@ -180,6 +231,40 @@ async function postJobs(count: number, offset: number, assignFirst = 0) {
       txHash: hash
     });
     console.log(`posted ${offset + i + 1}/${offset + count}: ${job.title} ${jobId}`);
+  }
+}
+
+async function postWritingJobs(count = 30) {
+  const address = requireEnv(contractAddress, "WORKPROOF_CONTRACT") as Hex;
+  const state = loadOrCreateWallets();
+  const clientWallet = wallet(state.client.privateKey);
+  const amount = parseEther("0.001");
+  const ids = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJobIds" });
+  const offset = ids.length;
+  for (let i = 0; i < count; i++) {
+    const job = makeWritingJob(offset + i);
+    const hash = await clientWallet.writeContract({
+      address,
+      abi: workProofAbi,
+      functionName: "postJob",
+      args: [job.title, `writing://${offset + i}`, job.acceptance, job.domain, job.deadline, "0x0000000000000000000000000000000000000000"],
+      value: amount
+    });
+    const receipt = await wait(hash);
+    const [posted] = parseEventLogs({ abi: workProofAbi, logs: receipt.logs, eventName: "JobPosted" });
+    if (!posted?.args.jobId) throw new Error(`JobPosted event missing for ${hash}`);
+    await insertSupabaseJob({
+      jobId: posted.args.jobId,
+      client: state.client.address,
+      title: job.title,
+      description: job.description,
+      acceptance: job.acceptance,
+      domain: job.domain,
+      amountWei: amount,
+      deadline: job.deadline,
+      txHash: hash
+    });
+    console.log(`posted writing ${i + 1}/${count}: ${job.title} ${posted.args.jobId}`);
   }
 }
 
@@ -381,6 +466,7 @@ async function main() {
   if (phase === "poll10-genlayer") return pollTenGenLayer();
   if (phase === "complete10") return relayPassAndClaim();
   if (phase === "post70") return postJobs(70, 30, 0);
+  if (phase === "post-writing30") return postWritingJobs(30);
   if (phase === "sync-db") return syncFromChainToSupabase();
   if (phase === "balances") {
     for (const target of [state.client, ...state.freelancers]) {
@@ -389,7 +475,7 @@ async function main() {
     }
     return;
   }
-  throw new Error("Usage: npx tsx scripts/stress-workproof.ts wallets|fund|balances|post30|submit10|verify10-genlayer|poll10-genlayer|complete10|post70|sync-db");
+  throw new Error("Usage: npx tsx scripts/stress-workproof.ts wallets|fund|balances|post30|submit10|verify10-genlayer|poll10-genlayer|complete10|post70|post-writing30|sync-db");
 }
 
 main().catch((error) => {

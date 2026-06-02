@@ -1,15 +1,15 @@
 import type { JobStatus } from "@/lib/types";
 
 const styles: Record<JobStatus, string> = {
-  Open: "border-cyan-300/50 bg-cyan-300/10 text-cyan-300",
-  Active: "border-blue-300/50 bg-blue-300/10 text-blue-200",
-  UnderReview: "border-amber-300/50 bg-amber-300/10 text-amber-200",
-  Failed: "border-red-300/50 bg-red-300/10 text-red-200",
-  Passed: "border-emerald-300/50 bg-emerald-300/10 text-emerald-200",
-  Complete: "border-slate-300/40 bg-slate-300/10 text-slate-200",
-  Refunded: "border-zinc-300/40 bg-zinc-300/10 text-zinc-200"
+  Open: "border-blue-200 bg-blue-50 text-blue-700",
+  Active: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  UnderReview: "border-amber-200 bg-amber-50 text-amber-700",
+  Failed: "border-red-200 bg-red-50 text-red-700",
+  Passed: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  Complete: "border-slate-200 bg-slate-50 text-slate-700",
+  Refunded: "border-zinc-200 bg-zinc-50 text-zinc-700"
 };
 
 export function JobStatusBadge({ status }: { status: JobStatus }) {
-  return <span className={`inline-flex rounded-[4px] border px-2 py-1 text-xs font-black uppercase tracking-[0.12em] ${styles[status]}`}>{status}</span>;
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-black ${styles[status]}`}>{status}</span>;
 }

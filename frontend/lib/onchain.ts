@@ -23,6 +23,12 @@ function safeDate(seconds: bigint | number | string) {
   return new Date(Number(seconds) * 1000).toISOString();
 }
 
+function descriptionFromCriteria(criteria: string, title: string, rewardAmount: bigint, domain: string) {
+  const brief = criteria.match(/PROJECT BRIEF:\s*([\s\S]*?)(?:\n\s*ACCEPTANCE CRITERIA:|\n\s*DELIVERABLES:|$)/i)?.[1]?.trim();
+  if (brief) return brief.replace(/\s+/g, " ");
+  return `Onchain WorkProof job for ${title}. Reward ${formatEther(rewardAmount)} ETH, domain ${domain}.`;
+}
+
 function normalizeJob(raw: Awaited<ReturnType<NonNullable<ReturnType<typeof client>>["readContract"]>>): Job {
   const job = raw as {
     jobId: Hex;
@@ -48,7 +54,7 @@ function normalizeJob(raw: Awaited<ReturnType<NonNullable<ReturnType<typeof clie
     freelancer_wallet: freelancer,
     assigned_to_wallet: freelancer,
     title: job.title,
-    description: `Onchain stress-test job synced from WorkProof escrow. Reward ${formatEther(job.rewardAmount)} ETH, domain ${job.domain}.`,
+    description: descriptionFromCriteria(job.acceptanceCriteria, job.title, job.rewardAmount, job.domain),
     spec_ipfs_hash: job.specIpfsHash || null,
     acceptance_criteria: job.acceptanceCriteria,
     domain: job.domain,

@@ -131,6 +131,7 @@ Production deployment:
 - Production Vercel URL returns `HTTP 200`.
 - Generated stress wallets were funded on Arbitrum Sepolia for the low-budget stress run.
 - Onchain stress run posted 100 escrow-backed jobs, submitted 10 jobs from 4 freelancer wallets, verified all 10 through GenLayer readiness, relayed successful verdicts, and claimed the 10 rewards.
+- A second content-marketplace run posted 30 additional writing-focused jobs with structured project briefs and detailed acceptance criteria, bringing the visible onchain feed to 130 jobs.
 - Live UI now displays stress jobs through the onchain fallback. Supabase-backed activity/claim table sync is pending a fresh schema, because the current database has no WorkProof tables.
 - The protocol no longer deploys `JuryRegistry`; GenLayer validators are the only work review layer.
 
@@ -153,6 +154,7 @@ npm run stress:verify10-genlayer
 npm run stress:poll10-genlayer
 npm run stress:complete10
 npm run stress:post70
+npm run stress:post-writing30
 npm run stress:sync-db
 ```
 
@@ -166,6 +168,7 @@ Completed stress result:
 - Verified all 10 submitted jobs to ready verdict state in GenLayer Studionet.
 - Relayed verdicts to `WorkProof.receiveVerdict` and claimed all 10 rewards.
 - Posted 70 additional escrow-backed jobs with varied deadlines, bringing the run to 100 total jobs.
+- Posted 30 additional writing-focused content jobs with professional briefs and strict acceptance criteria, bringing the current onchain job feed to 130 total jobs.
 - Confirmed the contract still tracks the 4 freelancer wallets after the stress run.
 
 For production stress runs, set:

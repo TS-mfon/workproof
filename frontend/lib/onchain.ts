@@ -11,7 +11,7 @@ import { workProofAbi, workProofAddress } from "./contracts";
 import type { Activity, Job, JobStatus, UserProfile } from "./types";
 
 const zeroAddress = "0x0000000000000000000000000000000000000000";
-const statusLabels: JobStatus[] = ["Open", "Active", "UnderReview", "Failed", "Passed", "Complete", "Refunded"];
+const statusLabels: JobStatus[] = ["Open", "Active", "UnderReview", "Failed", "Passed", "Complete", "Refunded", "Deleted"];
 
 function client() {
   const rpc = process.env.NEXT_PUBLIC_ARBITRUM_SEPOLIA_RPC ?? process.env.ARBITRUM_SEPOLIA_RPC ?? "https://sepolia-rollup.arbitrum.io/rpc";
@@ -140,20 +140,45 @@ export async function getOnchainActivities(limit = 20, jobId?: string): Promise<
     const parsed = parseEventLogs({
       abi: workProofAbi,
       logs,
-      eventName: ["JobPosted", "WorkSubmitted", "VerdictReceived", "RewardClaimed", "JobRefunded"]
+      eventName: [
+        "JobPosted",
+        "ApplicationSubmitted",
+        "JobAccepted",
+        "WorkSubmitted",
+        "VerdictReceived",
+        "VerdictOverridden",
+        "RewardClaimed",
+        "JobRefunded",
+        "JobDeleted",
+        "EscrowToppedUp",
+        "WalletBanned",
+        "WalletUnbanned"
+      ]
     });
     return parsed
-      .filter((event) => !jobId || String(event.args.jobId).toLowerCase() === jobId.toLowerCase())
+      .filter((event) => {
+        if (!jobId) return true;
+        const args = event.args as Record<string, unknown>;
+        const eventJobId = typeof args.jobId === "string" ? args.jobId : null;
+        return eventJobId ? eventJobId.toLowerCase() === jobId.toLowerCase() : false;
+      })
       .reverse()
       .slice(0, limit)
       .map((event, index) => {
         const args = event.args as Record<string, unknown>;
         const typeMap: Record<string, string> = {
           JobPosted: "job_posted",
+          ApplicationSubmitted: "application_submitted",
+          JobAccepted: "job_accepted",
           WorkSubmitted: "work_submitted",
           VerdictReceived: args.passed ? "verdict_pass" : "verdict_fail",
+          VerdictOverridden: args.passed ? "verdict_override_pass" : "verdict_override_fail",
           RewardClaimed: "reward_claimed",
-          JobRefunded: "refund_issued"
+          JobRefunded: "refund_issued",
+          JobDeleted: "job_deleted",
+          EscrowToppedUp: "escrow_topped_up",
+          WalletBanned: "wallet_banned",
+          WalletUnbanned: "wallet_unbanned"
         };
         return {
           id: `${event.transactionHash}-${index}`,

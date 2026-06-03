@@ -4,30 +4,50 @@ import { useState } from "react";
 import { useWriteContract } from "wagmi";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { EthAmount } from "@/components/shared/EthAmount";
+import { useTx } from "@/components/shared/TxToast";
 import type { Claim } from "@/lib/types";
 
 export function ClaimCard({ claim }: { claim: Claim }) {
   const { writeContractAsync, isPending } = useWriteContract();
-  const [message, setMessage] = useState("");
+  const { run } = useTx();
+  const [claimed, setClaimed] = useState(claim.status === "claimed");
+
   async function claimReward() {
-    if (!workProofAddress) return setMessage("Contract address missing.");
-    const hash = await writeContractAsync({ address: workProofAddress, abi: workProofAbi, functionName: "claimReward", args: [claim.job_id_onchain as `0x${string}`] });
-    await fetch("/api/jobs", {
+    const addr = workProofAddress;
+    if (!addr) return;
+    const hash = await run({
+      label: "Claiming reward",
+      pending: "Sending payout to your wallet…",
+      success: "Reward in your wallet",
+      write: () => writeContractAsync({
+        address: addr,
+        abi: workProofAbi,
+        functionName: "claimReward",
+        args: [claim.job_id_onchain as `0x${string}`]
+      })
+    });
+    if (!hash) return;
+    setClaimed(true);
+    fetch("/api/jobs", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ job_id_onchain: claim.job_id_onchain, status: "Complete", claim_id: claim.id, tx_hash: hash })
-    });
-    setMessage(`Claim submitted: ${hash}`);
+    }).catch(() => {});
   }
+
   return (
-    <div className="panel p-5">
-      <h3 className="text-xl font-bold">{claim.jobs?.title || claim.job_id_onchain}</h3>
-      <p className="mt-2"><EthAmount wei={claim.reward_wei} /> reward</p>
-      <p className="text-sm text-slate-600">Quality score: {claim.quality_score ?? "pending"}/100</p>
-      <p className="mt-2 text-sm">{claim.ai_summary}</p>
-      <p className="mt-2 text-sm font-bold">Reputation: +{claim.reputation_pts ?? 0}</p>
-      {claim.status === "pending" ? <button className="btn mt-4" disabled={isPending} onClick={claimReward}>Claim Reward</button> : <p className="mt-4 font-bold">Claimed</p>}
-      {message && <p className="mt-3 text-sm text-slate-700">{message}</p>}
+    <div className="panel p-6 grid gap-3">
+      <h3 className="text-lg font-bold">{claim.jobs?.title || "Claimable reward"}</h3>
+      <div className="text-2xl font-black">
+        <EthAmount wei={claim.reward_wei} />
+      </div>
+      <div className="text-sm text-muted">Quality score · {claim.quality_score ?? "—"}/100 · +{claim.reputation_pts ?? 0} XP</div>
+      {claim.ai_summary && <p className="text-sm">{claim.ai_summary}</p>}
+      {claimed ? (
+        <span className="status-badge" data-state="complete"><span className="dot" /> Claimed</span>
+      ) : (
+        <button className="btn" disabled={isPending} onClick={claimReward}>{isPending ? "Claiming…" : "Claim Reward"}</button>
+      )}
     </div>
   );
 }

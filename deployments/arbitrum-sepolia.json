@@ -3,8 +3,8 @@
   "chainId": 421614,
   "deployer": "0xEd9EDd8586b20524CafA4F568413C504C9B03172",
   "oracle": "0xEd9EDd8586b20524CafA4F568413C504C9B03172",
-  "workProof": "0x6f20e728a36c710ba7ECe9b3378Cb14A69eE0b1B",
+  "workProof": "0xA6E94A8e04fbE69aE485E494012a7f2b615979ea",
   "rpc": "https://sepolia-rollup.arbitrum.io/rpc",
   "explorer": "https://sepolia.arbiscan.io",
-  "deployedAt": "2026-06-01T20:14:18.849Z"
+  "deployedAt": "2026-06-02T19:24:54.438Z"
 }

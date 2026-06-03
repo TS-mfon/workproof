@@ -1,10 +1,13 @@
 import { notFound } from "next/navigation";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { JobActionPanel } from "@/components/jobs/JobActionPanel";
+import { ApplicantsPanel } from "@/components/jobs/ApplicantsPanel";
+import { SubmissionPanel } from "@/components/jobs/SubmissionPanel";
 import { JobStatusBadge } from "@/components/jobs/JobStatusBadge";
 import { StatusTimeline } from "@/components/jobs/StatusTimeline";
 import { AddressDisplay } from "@/components/shared/AddressDisplay";
 import { EthAmount } from "@/components/shared/EthAmount";
+import { Mono } from "@/components/shared/Mono";
 import { getActivities, getJob } from "@/lib/data";
 import { timeLeft } from "@/lib/format";
 
@@ -12,24 +15,71 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const [job, activities] = await Promise.all([getJob(id), getActivities(20, id)]);
   if (!job) notFound();
-  const verdict = job.ai_verdict;
+
   return (
     <section className="shell grid gap-6 py-10 lg:grid-cols-[1fr_340px]">
       <div className="grid gap-6">
         <div className="panel p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div><p className="font-black uppercase text-blue-600">{job.domain}</p><h1 className="mt-2 text-3xl font-black text-slate-950">{job.title}</h1></div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--accent)" }}>{job.domain}</p>
+              <h1 className="mt-2 text-3xl font-black">{job.title}</h1>
+            </div>
             <JobStatusBadge status={job.status} />
           </div>
-          <div className="mt-4 grid gap-3 text-sm text-slate-600 sm:grid-cols-3"><p><b className="text-slate-950">Reward:</b> <EthAmount wei={job.reward_amount_wei} /></p><p><b className="text-slate-950">Deadline:</b> {timeLeft(job.deadline)}</p><p><b className="text-slate-950">Retry:</b> Attempt {job.retry_count + 1} of 3</p></div>
+          <div className="mt-5 grid gap-4 text-sm sm:grid-cols-3">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide text-muted">Reward</div>
+              <div className="text-lg font-black mt-1"><EthAmount wei={job.reward_amount_wei} /></div>
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide text-muted">Deadline</div>
+              <div className="text-lg font-black mt-1">{timeLeft(job.deadline)}</div>
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide text-muted">Attempt</div>
+              <div className="text-lg font-black mt-1">{job.retry_count + 1} of 3</div>
+            </div>
+          </div>
         </div>
-        <div className="panel p-6"><h2 className="text-xl font-black text-slate-950">Description</h2><p className="mt-3 whitespace-pre-wrap text-slate-600">{job.description}</p><h2 className="mt-6 text-xl font-black text-slate-950">Acceptance Criteria</h2><p className="mt-3 whitespace-pre-wrap text-slate-600">{job.acceptance_criteria}</p></div>
-        <div className="panel p-6"><h2 className="mb-4 text-xl font-black text-slate-950">Status Timeline</h2><StatusTimeline status={job.status} /></div>
-        {(job.status === "UnderReview" || job.status === "Passed" || job.status === "Failed") && <div className="panel p-6"><h2 className="text-xl font-black text-slate-950">AI Verdict</h2>{verdict ? <pre className="mt-3 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">{JSON.stringify(verdict, null, 2)}</pre> : <p className="mt-3 text-slate-600">AI reviewing...</p>}</div>}
-        <div><h2 className="mb-4 text-xl font-black text-slate-950">Activity History</h2><ActivityFeed activities={activities} /></div>
+
+        <div className="panel p-6">
+          <h2 className="text-lg font-bold">Project brief</h2>
+          <p className="mt-3 whitespace-pre-wrap text-sm" style={{ color: "var(--muted-strong)", lineHeight: 1.7 }}>{job.description}</p>
+          <h2 className="mt-6 text-lg font-bold">Acceptance criteria</h2>
+          <pre className="mt-3 whitespace-pre-wrap text-sm rounded-lg border p-4 mono" style={{ borderColor: "var(--line)", background: "var(--surface-soft)", color: "var(--muted-strong)", lineHeight: 1.6 }}>{job.acceptance_criteria}</pre>
+        </div>
+
+        <div className="panel p-6">
+          <h2 className="mb-4 text-lg font-bold">Status timeline</h2>
+          <StatusTimeline status={job.status} />
+        </div>
+
+        <SubmissionPanel job={job} />
+
+        <ApplicantsPanel job={job} />
+
+        <div>
+          <h2 className="mb-4 text-lg font-bold">Activity</h2>
+          <ActivityFeed activities={activities} />
+        </div>
       </div>
+
       <aside className="grid content-start gap-6">
-        <div className="panel p-5"><h2 className="text-xl font-black text-slate-950">Client</h2><p className="mono mt-2 text-blue-700"><AddressDisplay address={job.client_wallet} /></p><h2 className="mt-5 text-xl font-black text-slate-950">Freelancer</h2><p className="mono mt-2 text-blue-700"><AddressDisplay address={job.freelancer_wallet || job.assigned_to_wallet} /></p></div>
+        <div className="panel p-5 grid gap-4">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wide text-muted">Client</div>
+            <Mono className="mt-1 block"><AddressDisplay address={job.client_wallet} /></Mono>
+          </div>
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wide text-muted">Freelancer</div>
+            <Mono className="mt-1 block">
+              {job.freelancer_wallet || job.assigned_to_wallet
+                ? <AddressDisplay address={job.freelancer_wallet || job.assigned_to_wallet} />
+                : <span style={{ color: "var(--muted)" }}>— unassigned</span>}
+            </Mono>
+          </div>
+        </div>
         <JobActionPanel job={job} />
       </aside>
     </section>

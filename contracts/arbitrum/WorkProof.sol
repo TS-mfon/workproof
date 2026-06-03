@@ -9,7 +9,8 @@ contract WorkProof {
         Failed,
         Passed,
         Complete,
-        Refunded
+        Refunded,
+        Deleted
     }
 
     struct Job {
@@ -28,6 +29,7 @@ contract WorkProof {
         uint256 deadline;
         uint256 retryCount;
         bytes32 genLayerJobId;
+        uint256 verdictAt;
     }
 
     struct FreelancerProfile {
@@ -39,10 +41,16 @@ contract WorkProof {
         string domain;
     }
 
+    uint256 public constant MAX_DISPUTE_WINDOW = 7 days;
+
     address public owner;
-    address public oracle;
     uint256 public jobNonce;
     bool public globalPaused;
+    uint256 public totalEscrowed;
+    uint256 public disputeWindow;
+
+    mapping(address => bool) public isOracle;
+    mapping(address => bool) public bannedWallets;
 
     mapping(bytes32 => Job) private jobs;
     mapping(bytes32 => bool) public jobExists;
@@ -62,13 +70,22 @@ contract WorkProof {
     event JobAccepted(bytes32 indexed jobId, address indexed freelancer);
     event WorkSubmitted(bytes32 indexed jobId, address indexed freelancer, string deliverableUrl);
     event VerdictReceived(bytes32 indexed jobId, bool passed, uint8 paymentPct, string reasoning);
+    event VerdictOverridden(bytes32 indexed jobId, bool passed, uint8 paymentPct, address indexed by, string reasoning);
     event RewardClaimed(bytes32 indexed jobId, address indexed freelancer, uint256 amount);
     event JobRefunded(bytes32 indexed jobId, address indexed client, uint256 amount, string reason);
+    event JobDeleted(bytes32 indexed jobId, address indexed by, uint256 refunded, string reason);
+    event EscrowToppedUp(bytes32 indexed jobId, address indexed by, uint256 amount);
     event ReputationAdded(address indexed freelancer, uint256 points, bytes32 jobId);
+    event ReputationAdjusted(address indexed wallet, uint256 oldPts, uint256 newPts, address indexed by, string reason);
     event JobFailureRecorded(address indexed freelancer, bytes32 indexed jobId);
     event JobPaused(bytes32 indexed jobId, bool paused);
     event GlobalPaused(bool paused);
-    event OracleUpdated(address indexed oracle);
+    event WalletBanned(address indexed wallet, address indexed by, string reason);
+    event WalletUnbanned(address indexed wallet, address indexed by);
+    event OracleAdded(address indexed oracle);
+    event OracleRemoved(address indexed oracle);
+    event DisputeWindowChanged(uint256 secondsValue);
+    event StuckEthSwept(address indexed to, uint256 amount);
 
     uint256 private locked = 1;
 
@@ -85,7 +102,12 @@ contract WorkProof {
     }
 
     modifier onlyOracle() {
-        require(msg.sender == oracle, "ONLY_ORACLE");
+        require(isOracle[msg.sender], "ONLY_ORACLE");
+        _;
+    }
+
+    modifier notBanned() {
+        require(!bannedWallets[msg.sender], "BANNED");
         _;
     }
 
@@ -99,7 +121,8 @@ contract WorkProof {
     constructor(address initialOracle) {
         require(initialOracle != address(0), "ZERO_ORACLE");
         owner = msg.sender;
-        oracle = initialOracle;
+        isOracle[initialOracle] = true;
+        emit OracleAdded(initialOracle);
     }
 
     receive() external payable {}
@@ -111,11 +134,14 @@ contract WorkProof {
         string calldata domain,
         uint256 deadline,
         address assignedFreelancer
-    ) external payable returns (bytes32 jobId) {
+    ) external payable notBanned returns (bytes32 jobId) {
         require(msg.value > 0, "ESCROW_REQUIRED");
         require(deadline > block.timestamp, "DEADLINE_IN_PAST");
         require(bytes(title).length > 0, "TITLE_REQUIRED");
         require(bytes(criteria).length > 0, "CRITERIA_REQUIRED");
+        if (assignedFreelancer != address(0)) {
+            require(!bannedWallets[assignedFreelancer], "ASSIGNEE_BANNED");
+        }
 
         jobId = keccak256(abi.encodePacked(msg.sender, title, block.timestamp, jobNonce++));
         bytes32 genLayerJobId = keccak256(abi.encodePacked("GENLAYER", jobId));
@@ -135,11 +161,13 @@ contract WorkProof {
             createdAt: block.timestamp,
             deadline: deadline,
             retryCount: 0,
-            genLayerJobId: genLayerJobId
+            genLayerJobId: genLayerJobId,
+            verdictAt: 0
         });
 
         jobExists[jobId] = true;
         jobIds.push(jobId);
+        totalEscrowed += msg.value;
 
         emit JobPosted(jobId, msg.sender, msg.value, domain, assignedFreelancer);
         if (assignedFreelancer != address(0)) {
@@ -147,7 +175,7 @@ contract WorkProof {
         }
     }
 
-    function applyForJob(bytes32 jobId) external jobAvailable(jobId) {
+    function applyForJob(bytes32 jobId) external jobAvailable(jobId) notBanned {
         Job storage job = jobs[jobId];
         require(msg.sender != job.client, "CLIENT_CANNOT_APPLY");
 
@@ -165,19 +193,20 @@ contract WorkProof {
         emit ApplicationSubmitted(jobId, msg.sender);
     }
 
-    function acceptApplication(bytes32 jobId, address freelancer) external jobAvailable(jobId) {
+    function acceptApplication(bytes32 jobId, address freelancer) external jobAvailable(jobId) notBanned {
         Job storage job = jobs[jobId];
         require(msg.sender == job.client, "ONLY_CLIENT");
         require(job.status == JobStatus.Open, "NOT_OPEN");
         require(hasApplied[jobId][freelancer], "NO_APPLICATION");
         require(freelancer != address(0), "ZERO_FREELANCER");
+        require(!bannedWallets[freelancer], "FREELANCER_BANNED");
 
         job.assignedFreelancer = freelancer;
         job.status = JobStatus.Active;
         emit JobAccepted(jobId, freelancer);
     }
 
-    function submitWork(bytes32 jobId, string calldata deliverableUrl) external jobAvailable(jobId) {
+    function submitWork(bytes32 jobId, string calldata deliverableUrl) external jobAvailable(jobId) notBanned {
         Job storage job = jobs[jobId];
         require(job.assignedFreelancer == msg.sender, "ONLY_FREELANCER");
         require(job.status == JobStatus.Active || job.status == JobStatus.Failed, "NOT_SUBMITTABLE");
@@ -206,10 +235,12 @@ contract WorkProof {
             job.rewardAmount = (job.escrowAmount * pct) / 100;
             verdictQualityScore[jobId] = pct;
             job.status = JobStatus.Passed;
+            job.verdictAt = block.timestamp;
             return;
         }
 
         job.retryCount += 1;
+        job.verdictAt = block.timestamp;
         _recordFailedJob(job.assignedFreelancer, jobId, job.domain);
         if (job.retryCount >= 3) {
             _refund(jobId, "Max retries reached");
@@ -218,17 +249,50 @@ contract WorkProof {
         }
     }
 
-    function claimReward(bytes32 jobId) external nonReentrant jobAvailable(jobId) {
+    function overrideVerdict(
+        bytes32 jobId,
+        bool passed,
+        uint8 paymentPct,
+        string calldata reasoning
+    ) external onlyOwner nonReentrant {
+        require(jobExists[jobId], "JOB_NOT_FOUND");
+        Job storage job = jobs[jobId];
+        require(
+            job.status == JobStatus.UnderReview ||
+            job.status == JobStatus.Failed ||
+            job.status == JobStatus.Passed ||
+            job.status == JobStatus.Active,
+            "NOT_OVERRIDABLE"
+        );
+        require(paymentPct <= 100, "BAD_PAYMENT_PCT");
+        require(!rewardClaimed[jobId], "ALREADY_CLAIMED");
+
+        if (passed) {
+            uint256 pct = paymentPct == 0 ? 100 : paymentPct;
+            job.rewardAmount = (job.escrowAmount * pct) / 100;
+            verdictQualityScore[jobId] = pct;
+            job.status = JobStatus.Passed;
+        } else {
+            job.status = JobStatus.Failed;
+        }
+        job.verdictAt = block.timestamp;
+        emit VerdictOverridden(jobId, passed, paymentPct, msg.sender, reasoning);
+    }
+
+    function claimReward(bytes32 jobId) external nonReentrant jobAvailable(jobId) notBanned {
         Job storage job = jobs[jobId];
         require(job.status == JobStatus.Passed, "NOT_PASSED");
         require(job.assignedFreelancer == msg.sender, "ONLY_FREELANCER");
         require(!rewardClaimed[jobId], "ALREADY_CLAIMED");
+        require(block.timestamp >= job.verdictAt + disputeWindow, "DISPUTE_WINDOW");
 
         rewardClaimed[jobId] = true;
         job.status = JobStatus.Complete;
         uint256 amount = job.rewardAmount;
-        uint256 remainder = job.escrowAmount - amount;
+        uint256 escrow = job.escrowAmount;
+        uint256 remainder = escrow - amount;
         job.escrowAmount = 0;
+        totalEscrowed -= escrow;
 
         uint256 points = _recordCompletedJob(msg.sender, verdictQualityScore[jobId], job.retryCount == 0, amount, job.domain);
         emit ReputationAdded(msg.sender, points, jobId);
@@ -244,16 +308,38 @@ contract WorkProof {
 
     function autoRefund(bytes32 jobId) external onlyOracle nonReentrant jobAvailable(jobId) {
         Job storage job = jobs[jobId];
-        require(job.status != JobStatus.Passed && job.status != JobStatus.Complete && job.status != JobStatus.Refunded, "NOT_REFUNDABLE");
+        require(
+            job.status != JobStatus.Passed &&
+            job.status != JobStatus.Complete &&
+            job.status != JobStatus.Refunded &&
+            job.status != JobStatus.Deleted,
+            "NOT_REFUNDABLE"
+        );
         require(block.timestamp > job.deadline || job.retryCount >= 3, "REFUND_NOT_DUE");
         _refund(jobId, block.timestamp > job.deadline ? "Deadline passed" : "Max retries reached");
     }
 
-    function cancelJob(bytes32 jobId) external nonReentrant jobAvailable(jobId) {
+    function cancelJob(bytes32 jobId) external nonReentrant jobAvailable(jobId) notBanned {
         Job storage job = jobs[jobId];
         require(msg.sender == job.client, "ONLY_CLIENT");
         require(job.status == JobStatus.Open, "NOT_OPEN");
         _refund(jobId, "Client cancelled open job");
+    }
+
+    function topUpEscrow(bytes32 jobId) external payable jobAvailable(jobId) notBanned {
+        require(msg.value > 0, "ZERO_TOPUP");
+        Job storage job = jobs[jobId];
+        require(
+            job.status == JobStatus.Open ||
+            job.status == JobStatus.Active ||
+            job.status == JobStatus.UnderReview ||
+            job.status == JobStatus.Failed,
+            "TOPUP_NOT_ALLOWED"
+        );
+        job.escrowAmount += msg.value;
+        job.rewardAmount += msg.value;
+        totalEscrowed += msg.value;
+        emit EscrowToppedUp(jobId, msg.sender, msg.value);
     }
 
     function pauseJob(bytes32 jobId, bool paused) external onlyOwner {
@@ -265,8 +351,74 @@ contract WorkProof {
     function adminForceRefund(bytes32 jobId, string calldata reason) external onlyOwner nonReentrant {
         require(jobExists[jobId], "JOB_NOT_FOUND");
         Job storage job = jobs[jobId];
-        require(job.status != JobStatus.Complete && job.status != JobStatus.Refunded, "NOT_REFUNDABLE");
+        require(
+            job.status != JobStatus.Complete &&
+            job.status != JobStatus.Refunded &&
+            job.status != JobStatus.Deleted,
+            "NOT_REFUNDABLE"
+        );
         _refund(jobId, reason);
+    }
+
+    function deleteJob(bytes32 jobId, string calldata reason) external onlyOwner nonReentrant {
+        require(jobExists[jobId], "JOB_NOT_FOUND");
+        Job storage job = jobs[jobId];
+        require(
+            job.status != JobStatus.Complete &&
+            job.status != JobStatus.Refunded &&
+            job.status != JobStatus.Deleted,
+            "TERMINAL"
+        );
+
+        uint256 amount = job.escrowAmount;
+        if (amount > 0) {
+            job.escrowAmount = 0;
+            job.rewardAmount = 0;
+            totalEscrowed -= amount;
+            (bool ok, ) = job.client.call{value: amount}("");
+            require(ok, "REFUND_TRANSFER_FAILED");
+        }
+        job.status = JobStatus.Deleted;
+        emit JobDeleted(jobId, msg.sender, amount, reason);
+    }
+
+    function banUser(address wallet, string calldata reason) external onlyOwner {
+        require(wallet != address(0), "ZERO_WALLET");
+        require(wallet != owner, "CANNOT_BAN_OWNER");
+        bannedWallets[wallet] = true;
+        emit WalletBanned(wallet, msg.sender, reason);
+    }
+
+    function unbanUser(address wallet) external onlyOwner {
+        bannedWallets[wallet] = false;
+        emit WalletUnbanned(wallet, msg.sender);
+    }
+
+    function setReputation(address wallet, uint256 newPoints, string calldata reason) external onlyOwner {
+        require(wallet != address(0), "ZERO_WALLET");
+        _ensureProfile(wallet, "");
+        uint256 oldPts = profiles[wallet].reputationPoints;
+        profiles[wallet].reputationPoints = newPoints;
+        emit ReputationAdjusted(wallet, oldPts, newPoints, msg.sender, reason);
+    }
+
+    function addOracle(address newOracle) external onlyOwner {
+        require(newOracle != address(0), "ZERO_ORACLE");
+        require(!isOracle[newOracle], "ALREADY_ORACLE");
+        isOracle[newOracle] = true;
+        emit OracleAdded(newOracle);
+    }
+
+    function removeOracle(address oldOracle) external onlyOwner {
+        require(isOracle[oldOracle], "NOT_ORACLE");
+        isOracle[oldOracle] = false;
+        emit OracleRemoved(oldOracle);
+    }
+
+    function setDisputeWindow(uint256 secondsValue) external onlyOwner {
+        require(secondsValue <= MAX_DISPUTE_WINDOW, "WINDOW_TOO_LONG");
+        disputeWindow = secondsValue;
+        emit DisputeWindowChanged(secondsValue);
     }
 
     function setGlobalPaused(bool paused) external onlyOwner {
@@ -274,10 +426,14 @@ contract WorkProof {
         emit GlobalPaused(paused);
     }
 
-    function setOracle(address nextOracle) external onlyOwner {
-        require(nextOracle != address(0), "ZERO_ORACLE");
-        oracle = nextOracle;
-        emit OracleUpdated(nextOracle);
+    function sweepStuckEth(address to) external onlyOwner nonReentrant {
+        require(to != address(0), "ZERO_TO");
+        uint256 balance = address(this).balance;
+        require(balance > totalEscrowed, "NO_STUCK_ETH");
+        uint256 amount = balance - totalEscrowed;
+        (bool ok, ) = to.call{value: amount}("");
+        require(ok, "SWEEP_FAILED");
+        emit StuckEthSwept(to, amount);
     }
 
     function getJob(bytes32 jobId) external view returns (Job memory) {
@@ -336,8 +492,11 @@ contract WorkProof {
         job.escrowAmount = 0;
         job.rewardAmount = 0;
         job.status = JobStatus.Refunded;
-        (bool ok, ) = job.client.call{value: amount}("");
-        require(ok, "REFUND_TRANSFER_FAILED");
+        if (amount > 0) {
+            totalEscrowed -= amount;
+            (bool ok, ) = job.client.call{value: amount}("");
+            require(ok, "REFUND_TRANSFER_FAILED");
+        }
         emit JobRefunded(jobId, job.client, amount, reason);
     }
 

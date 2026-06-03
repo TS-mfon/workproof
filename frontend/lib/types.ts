@@ -1,4 +1,48 @@
-export type JobStatus = "Open" | "Active" | "UnderReview" | "Failed" | "Passed" | "Complete" | "Refunded";
+export type JobStatus = "Open" | "Active" | "UnderReview" | "Failed" | "Passed" | "Complete" | "Refunded" | "Deleted";
+
+export type Notification = {
+  id: string;
+  recipient_wallet: string;
+  kind: string;
+  job_id: string | null;
+  payload: Record<string, unknown> | null;
+  seen_at: string | null;
+  created_at: string;
+};
+
+export type Announcement = {
+  id: string;
+  message: string;
+  active: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  created_at: string;
+};
+
+export type Dispute = {
+  id: string;
+  job_id_onchain: string;
+  opener_wallet: string;
+  reason: string;
+  status: "open" | "resolved";
+  resolution: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+};
+
+export type Badge = {
+  slug: string;
+  name: string;
+  description: string;
+  icon: string;
+};
+
+export type EarnedBadge = {
+  wallet_address: string;
+  badge_slug: string;
+  earned_at: string;
+};
 
 export type Job = {
   id: string;

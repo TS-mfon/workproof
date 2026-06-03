@@ -22,6 +22,7 @@
     "stress:post70": "tsx scripts/stress-workproof.ts post70",
     "stress:post-writing30": "tsx scripts/stress-workproof.ts post-writing30",
     "stress:sync-db": "tsx scripts/stress-workproof.ts sync-db",
+    "seed:quality": "tsx scripts/seed-quality-jobs.ts",
     "supabase:reset": "psql \"$SUPABASE_DB_URL\" -v ON_ERROR_STOP=1 -f supabase/migrations/000_reset_workproof.sql -f supabase/migrations/001_workproof_schema.sql",
     "oracle:dev": "npm --workspace oracle run dev",
     "frontend:dev": "npm --workspace frontend run dev",

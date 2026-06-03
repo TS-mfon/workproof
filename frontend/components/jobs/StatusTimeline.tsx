@@ -1,17 +1,65 @@
 import type { JobStatus } from "@/lib/types";
 
-const steps: JobStatus[] = ["Open", "Active", "UnderReview", "Passed", "Complete"];
+const steps: { key: JobStatus; label: string }[] = [
+  { key: "Open", label: "Posted" },
+  { key: "Active", label: "In Progress" },
+  { key: "UnderReview", label: "AI Review" },
+  { key: "Passed", label: "Approved" },
+  { key: "Complete", label: "Paid Out" }
+];
+
+const terminalStyles: Partial<Record<JobStatus, string>> = {
+  Failed: "var(--danger)",
+  Refunded: "var(--muted)",
+  Deleted: "var(--danger)"
+};
 
 export function StatusTimeline({ status }: { status: JobStatus }) {
-  const active = steps.indexOf(status);
+  const activeIdx = steps.findIndex((s) => s.key === status);
+  const terminalColor = terminalStyles[status];
   return (
-    <div className="grid gap-2 sm:grid-cols-5">
-      {steps.map((step, index) => (
-        <div key={step} className={`rounded-md border p-3 text-sm font-bold ${index <= active ? "border-teal-700 bg-teal-50 text-teal-900" : "border-slate-200 text-slate-500"}`}>
-          {step}
+    <div>
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0,1fr))` }}>
+        {steps.map((step, index) => {
+          const reached = index <= activeIdx && activeIdx >= 0;
+          return (
+            <div
+              key={step.key}
+              style={{
+                borderRadius: 10,
+                border: `1px solid ${reached ? "var(--accent)" : "var(--line)"}`,
+                background: reached ? "var(--accent-soft)" : "var(--surface-soft)",
+                color: reached ? "var(--accent)" : "var(--muted)",
+                fontSize: 12,
+                fontWeight: 800,
+                letterSpacing: "0.04em",
+                padding: "10px 8px",
+                textAlign: "center",
+                textTransform: "uppercase"
+              }}
+            >
+              {step.label}
+            </div>
+          );
+        })}
+      </div>
+      {terminalColor && (
+        <div
+          style={{
+            marginTop: 12,
+            border: `1px solid ${terminalColor}`,
+            borderRadius: 10,
+            padding: "10px 14px",
+            color: terminalColor,
+            fontWeight: 800,
+            fontSize: 12,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase"
+          }}
+        >
+          {status === "Refunded" ? "Refunded to client" : status === "Deleted" ? "Removed by admin" : "AI verifier failed this attempt"}
         </div>
-      ))}
-      {(status === "Failed" || status === "Refunded") && <div className="rounded-md border border-red-700 bg-red-50 p-3 text-sm font-bold text-red-900">{status}</div>}
+      )}
     </div>
   );
 }

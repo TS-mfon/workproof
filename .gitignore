@@ -10,5 +10,6 @@ typechain-types/
 !.env.example
 !.env.local.example
 .stress-wallets.local.json
+.seed-wallets.local.json
 deployments/*.local.json
 npm-debug.log*

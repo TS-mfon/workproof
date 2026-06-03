@@ -57,9 +57,10 @@ After deployment, copy the printed `WorkProof` address into the oracle and front
 
 Current Arbitrum Sepolia deployment:
 
-- `WorkProof`: `0x6f20e728a36c710ba7ECe9b3378Cb14A69eE0b1B`
+- `WorkProof v2`: `0xA6E94A8e04fbE69aE485E494012a7f2b615979ea`
 - Initial oracle/admin deployer: `0xEd9EDd8586b20524CafA4F568413C504C9B03172`
 - Deployment metadata: `deployments/arbitrum-sepolia.json`
+- Previous v1 (legacy data, 130 stress jobs): `0x6f20e728a36c710ba7ECe9b3378Cb14A69eE0b1B`
 
 ## GenLayer
 
@@ -116,8 +117,8 @@ The frontend renders only real Supabase/onchain state. Empty production state is
 Production deployment:
 
 - GitHub: `https://github.com/TS-mfon/workproof`
-- Vercel: `https://workproof-gen-daves-projects.vercel.app`
-- Vercel project: `gen-daves-projects/workproof`
+- Vercel: `https://arbworkproof.vercel.app`
+- Vercel project: `gen-daves-projects/arbworkproof`
 
 ## Current Verification Status
 

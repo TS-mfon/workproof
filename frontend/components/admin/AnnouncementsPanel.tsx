@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAccount } from "wagmi";
+import { useAdminSign } from "@/components/shared/useAdminSign";
 import type { Announcement } from "@/lib/types";
 
 export function AnnouncementsPanel() {
-  const { address } = useAccount();
+  const { sign, ready } = useAdminSign();
   const [active, setActive] = useState<Announcement[]>([]);
   const [message, setMessage] = useState("");
   const [kind, setKind] = useState("info");
@@ -17,13 +17,15 @@ export function AnnouncementsPanel() {
   }, []);
 
   async function post() {
-    if (!address || !message) return;
+    if (!ready || !message) return;
     setPosting(true);
     setError("");
     try {
+      const auth = await sign("announcement_create", message.slice(0, 64));
+      if (!auth) throw new Error("Could not sign — connect a wallet first.");
       const r = await fetch("/api/announcements", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-admin-wallet": address },
+        headers: { "content-type": "application/json", Authorization: auth },
         body: JSON.stringify({ message, kind, active: true })
       });
       const j = await r.json();
@@ -39,10 +41,12 @@ export function AnnouncementsPanel() {
   }
 
   async function disable(id: string) {
-    if (!address) return;
+    if (!ready) return;
+    const auth = await sign("announcement_update", id);
+    if (!auth) return;
     await fetch("/api/announcements", {
       method: "PATCH",
-      headers: { "content-type": "application/json", "x-admin-wallet": address },
+      headers: { "content-type": "application/json", Authorization: auth },
       body: JSON.stringify({ id, active: false })
     });
     setActive((prev) => prev.filter((a) => a.id !== id));

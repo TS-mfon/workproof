@@ -5,16 +5,32 @@ import { EthAmount } from "@/components/shared/EthAmount";
 
 export function LeaderboardRow({ user, rank }: { user: UserProfile; rank: number }) {
   const attempted = user.jobs_completed + user.jobs_failed;
-  const winRate = attempted === 0 ? 0 : Math.round((user.jobs_completed / attempted) * 100);
+  const completion = attempted === 0 ? 0 : Math.round((user.jobs_completed / attempted) * 100);
+  const verified = rank <= 10;
   return (
-    <tr className={rank <= 3 ? "bg-blue-50/70" : ""}>
-      <td><span className="rounded-lg bg-blue-600 px-2 py-1 text-xs font-black text-white">#{rank}</span></td>
-      <td><Link className="mono font-bold text-blue-700" href={`/profile/${user.wallet_address}`}><AddressDisplay address={user.wallet_address} /></Link></td>
-      <td className="text-slate-600">{user.domains?.join(", ") || "General"}</td>
-      <td className="font-black text-slate-950">{user.reputation_pts}</td>
-      <td className="text-slate-600">{user.jobs_completed}</td>
-      <td className="text-slate-600"><EthAmount wei={user.total_earned_wei} /></td>
-      <td className="text-slate-600">{winRate}%</td>
+    <tr>
+      <td>
+        <span style={{
+          background: rank <= 3 ? "var(--accent)" : "var(--surface-soft)",
+          color: rank <= 3 ? "white" : "var(--muted-strong)",
+          padding: "4px 10px",
+          borderRadius: 8,
+          fontWeight: 700,
+          fontSize: 12
+        }}>
+          #{rank}
+        </span>
+      </td>
+      <td>
+        <Link className="mono" href={`/profile/${user.wallet_address}`} style={{ color: "var(--accent-strong)", fontWeight: 600 }}>
+          <AddressDisplay address={user.wallet_address} />
+        </Link>
+        {verified && <span className="verified-badge" style={{ marginLeft: 8 }}>✓ Verified</span>}
+      </td>
+      <td><b>{user.reputation_pts}</b></td>
+      <td>{completion}%</td>
+      <td>{user.jobs_completed}</td>
+      <td><EthAmount wei={user.total_earned_wei} /></td>
     </tr>
   );
 }

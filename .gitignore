@@ -13,3 +13,4 @@ typechain-types/
 .seed-wallets.local.json
 deployments/*.local.json
 npm-debug.log*
+*:Zone.Identifier

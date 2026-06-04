@@ -17,6 +17,15 @@ export function SubmissionPanel({ job }: { job: Job }) {
   if (!isClient && !isFreelancer) return null;
   if (!job.deliverable_url) return null;
 
+  const isSafeUrl = (() => {
+    try {
+      const u = new URL(job.deliverable_url);
+      return u.protocol === "http:" || u.protocol === "https:";
+    } catch {
+      return false;
+    }
+  })();
+
   const verdict = job.ai_verdict as Record<string, unknown> | null;
   const summary = verdict?.summary ? String(verdict.summary) : null;
   const issues = verdict?.issues ? String(verdict.issues) : null;
@@ -36,15 +45,24 @@ export function SubmissionPanel({ job }: { job: Job }) {
 
       <div className="rounded-lg border" style={{ borderColor: "var(--line)", background: "var(--surface-soft)", padding: 14 }}>
         <div className="text-xs uppercase tracking-wide font-bold" style={{ color: "var(--muted)" }}>Deliverable</div>
-        <a
-          href={job.deliverable_url}
-          target="_blank"
-          rel="noreferrer"
-          className="mono text-sm break-all"
-          style={{ color: "var(--accent)", marginTop: 6, display: "block" }}
-        >
-          {job.deliverable_url}
-        </a>
+        {isSafeUrl ? (
+          <a
+            href={job.deliverable_url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="mono text-sm break-all"
+            style={{ color: "var(--accent-strong)", marginTop: 6, display: "block" }}
+          >
+            {job.deliverable_url}
+          </a>
+        ) : (
+          <div style={{ marginTop: 6 }}>
+            <span className="mono text-sm break-all" style={{ color: "var(--muted-strong)" }}>{job.deliverable_url}</span>
+            <p className="text-xs mt-2" style={{ color: "var(--warn)" }}>
+              ⚠ This deliverable URL uses an unsupported protocol. It's not safe to open from the app — review it manually first.
+            </p>
+          </div>
+        )}
       </div>
 
       {job.status === "UnderReview" && (

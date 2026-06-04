@@ -1,122 +1,115 @@
 import Link from "next/link";
-import { ArrowRight, Bot, CheckCircle2, FileCheck2, LockKeyhole, ShieldCheck, Zap } from "lucide-react";
-import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
-import { JobCard } from "@/components/jobs/JobCard";
-import { LeaderboardRow } from "@/components/leaderboard/LeaderboardRow";
 import { EthAmount } from "@/components/shared/EthAmount";
-import { getActivities, getJobs, getStats, getUsers } from "@/lib/data";
+import { FlowIcons } from "@/components/landing/FlowIcons";
+import { getJobs, getStats } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [stats, jobs, users, activities] = await Promise.all([getStats(), getJobs(6), getUsers(5), getActivities(8)]);
-  const featured = jobs[0];
+  const [stats, jobs] = await Promise.all([getStats(), getJobs(200)]);
+  const open = jobs.filter((j) => j.status === "Open").length;
 
   return (
     <>
       <section className="hero-stage">
         <div className="shell hero-grid">
-          <div className="animate-rise max-w-3xl">
-            <p className="eyebrow"><span className="live-dot" /> Live autonomous escrow</p>
-            <h1 className="mt-6 text-5xl font-black leading-[1.02] text-slate-950 md:text-7xl">
-              Work verified before payment.
+          <div className="animate-rise">
+            <p className="eyebrow"><span className="live-dot" /> Live on Arbitrum Sepolia</p>
+            <h1 style={{ fontSize: "clamp(40px, 6vw, 72px)", fontWeight: 800, lineHeight: 1.02, marginTop: 24, letterSpacing: "-0.025em" }}>
+              Work verified <br />before payment.
             </h1>
-            <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">
-              A trust-first escrow marketplace where clients lock funds, freelancers submit clear deliverables, and GenLayer verifies completion against written criteria.
+            <p style={{ fontSize: 17, lineHeight: 1.6, color: "var(--muted-strong)", marginTop: 20, maxWidth: 560 }}>
+              An autonomous freelance escrow. Clients lock ETH, freelancers submit a deliverable URL, and an AI verifier decides whether the payout releases — no platform middlemen, no manual approvals.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link className="btn" href="/jobs">Browse Jobs <ArrowRight size={18} /></Link>
-              <Link className="btn secondary" href="/jobs/post">Post a Job</Link>
+            <div style={{ marginTop: 32, display: "flex", flexWrap: "wrap", gap: 12 }}>
+              <Link className="btn large" href="/jobs">Browse open jobs</Link>
+              <Link className="btn ghost large" href="/jobs/post">Post a job</Link>
             </div>
           </div>
 
           <div className="protocol-visual">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase text-blue-600">Escrow flow</p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">From task to claim</h2>
-              </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <span className="text-xs uppercase tracking-widest font-bold" style={{ color: "var(--accent-strong)" }}>How it works</span>
               <span className="live-pill"><span className="live-dot" /> Live</span>
             </div>
-            <div className="mt-8 grid gap-3">
-              {[
-                ["Escrow", "ETH locked on Arbitrum", LockKeyhole],
-                ["Submit", "Deliverable URL attached", FileCheck2],
-                ["Verify", "GenLayer consensus review", Bot],
-                ["Claim", "Approved reward released", ShieldCheck]
-              ].map(([label, copy, Icon]) => (
-                <div className="process-row" key={String(label)}>
-                  <span><Icon size={18} /></span>
-                  <div>
-                    <p className="font-black text-slate-950">{label as string}</p>
-                    <p className="text-sm text-slate-600">{copy as string}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <FlowSteps />
           </div>
         </div>
       </section>
 
-      <section className="shell stats-strip">
-        <div className="metric-card"><p>Total Jobs</p><b>{stats.totalJobs}</b></div>
-        <div className="metric-card"><p>ETH Escrowed</p><b><EthAmount wei={stats.totalEscrowed} /></b></div>
-        <div className="metric-card"><p>Completed</p><b>{stats.completed}</b></div>
-        <div className="metric-card"><p>Freelancers</p><b>{stats.activeFreelancers}</b></div>
+      <section className="shell stats-strip" style={{ marginTop: 56 }}>
+        <Link href="/jobs" className="metric-card" style={{ textDecoration: "none" }}>
+          <p>Open jobs</p>
+          <b>{open}</b>
+        </Link>
+        <Link href="/jobs" className="metric-card" style={{ textDecoration: "none" }}>
+          <p>Total escrowed</p>
+          <b><EthAmount wei={stats.totalEscrowed} /></b>
+        </Link>
+        <Link href="/activity" className="metric-card" style={{ textDecoration: "none" }}>
+          <p>Completed</p>
+          <b>{stats.completed}</b>
+        </Link>
       </section>
 
-      <section className="shell py-10">
-        <div className="section-heading row">
-          <div>
-            <p>Jobs marketplace</p>
-            <h2>Live work feed</h2>
-            <span>Real stress-test jobs from the deployed escrow contract and synced protocol data.</span>
+      <section className="section section-band">
+        <div className="shell">
+          <div className="section-heading" style={{ margin: "0 auto", textAlign: "center", maxWidth: 720 }}>
+            <p>Trust by design</p>
+            <h2>No invoice. No approval queue.<br />The contract is the referee.</h2>
+            <span>
+              Escrow is locked in the WorkProof contract on Arbitrum Sepolia. A GenLayer verifier reads the deliverable URL against the client's acceptance criteria and writes the verdict back on-chain. The freelancer claims directly from the contract — admins can pause, override, or refund, but the default path runs on its own.
+            </span>
           </div>
-          <Link className="btn secondary" href="/jobs">View all</Link>
-        </div>
-        {featured ? (
-          <div className="mt-8 grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
-            <div className="featured-job">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-black uppercase text-blue-600">Featured job</p>
-                  <h3 className="mt-4 text-3xl font-black text-slate-950">{featured.title}</h3>
-                </div>
-                <CheckCircle2 className="text-blue-600" />
-              </div>
-              <p className="mt-5 line-clamp-3 text-slate-600">{featured.description}</p>
-              <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
-                <p className="text-3xl font-black text-blue-600"><EthAmount wei={featured.reward_amount_wei} /></p>
-                <Link className="btn" href={`/jobs/${featured.job_id_onchain}`}>Claim Task <Zap size={16} /></Link>
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {jobs.slice(1, 5).map((job) => <JobCard key={job.job_id_onchain} job={job} />)}
-            </div>
+          <div style={{ marginTop: 48, display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+            <TrustCard
+              title="On-chain escrow"
+              body="ETH is locked inside the contract the moment a job is posted. No custodial wallets, no exit ramps."
+            />
+            <TrustCard
+              title="AI-verified deliverables"
+              body="GenLayer validators independently check the deliverable URL against the criteria the client wrote. Consensus, not a single API call."
+            />
+            <TrustCard
+              title="Autonomous payouts"
+              body="No platform manager signs off. The oracle relays the verdict, the freelancer claims, the client gets back any unused escrow."
+            />
           </div>
-        ) : (
-          <div className="empty-state mt-8">No onchain jobs are visible yet.</div>
-        )}
-      </section>
-
-      <section className="shell grid gap-8 py-10 lg:grid-cols-[0.9fr_1.1fr]">
-        <div>
-          <div className="section-heading compact">
-            <p>Reputation</p>
-            <h2>Leaderboard</h2>
-          </div>
-          <div className="panel table-wrap mt-5 overflow-hidden">
-            <table><tbody>{users.map((user, i) => <LeaderboardRow key={user.wallet_address} user={user} rank={i + 1} />)}</tbody></table>
-          </div>
-        </div>
-        <div>
-          <div className="section-heading compact">
-            <p>Activity</p>
-            <h2>Protocol stream</h2>
-          </div>
-          <div className="mt-5"><ActivityFeed activities={activities} /></div>
         </div>
       </section>
     </>
+  );
+}
+
+function FlowSteps() {
+  const steps = [
+    { label: "Escrow", body: "Client locks ETH in the contract.", Icon: FlowIcons.Lock },
+    { label: "Submit", body: "Freelancer attaches a deliverable URL.", Icon: FlowIcons.Upload },
+    { label: "Verify", body: "GenLayer reads it against the criteria.", Icon: FlowIcons.Brain },
+    { label: "Claim", body: "Approved reward releases automatically.", Icon: FlowIcons.Coin }
+  ];
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      {steps.map((s, i) => (
+        <div className="process-row" key={s.label}>
+          <span><s.Icon /></span>
+          <div>
+            <div style={{ fontWeight: 700, color: "var(--foreground)", fontSize: 14 }}>
+              {i + 1}. {s.label}
+            </div>
+            <div style={{ fontSize: 13, color: "var(--muted-strong)", marginTop: 2 }}>{s.body}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TrustCard({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="feature-card">
+      <h3>{title}</h3>
+      <p>{body}</p>
+    </div>
   );
 }

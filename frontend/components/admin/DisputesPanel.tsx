@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useAccount } from "wagmi";
+import { useAdminSign } from "@/components/shared/useAdminSign";
 import { Mono } from "@/components/shared/Mono";
 import { AddressDisplay } from "@/components/shared/AddressDisplay";
 import type { Dispute } from "@/lib/types";
 
 export function DisputesPanel() {
-  const { address } = useAccount();
+  const { sign, ready } = useAdminSign();
   const [items, setItems] = useState<Dispute[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -22,10 +22,12 @@ export function DisputesPanel() {
   }, []);
 
   async function resolve(id: string, status: "resolved" | "dismissed", resolution: string) {
-    if (!address) return;
+    if (!ready) return;
+    const auth = await sign("dispute_resolve", id);
+    if (!auth) return;
     await fetch("/api/disputes", {
       method: "PATCH",
-      headers: { "content-type": "application/json", "x-admin-wallet": address },
+      headers: { "content-type": "application/json", Authorization: auth },
       body: JSON.stringify({ id, status, resolution })
     });
     setItems((prev) => prev.filter((d) => d.id !== id));

@@ -155,42 +155,59 @@ export async function getOnchainActivities(limit = 20, jobId?: string): Promise<
         "WalletUnbanned"
       ]
     });
-    return parsed
-      .filter((event) => {
-        if (!jobId) return true;
-        const args = event.args as Record<string, unknown>;
-        const eventJobId = typeof args.jobId === "string" ? args.jobId : null;
-        return eventJobId ? eventJobId.toLowerCase() === jobId.toLowerCase() : false;
-      })
-      .reverse()
-      .slice(0, limit)
-      .map((event, index) => {
-        const args = event.args as Record<string, unknown>;
-        const typeMap: Record<string, string> = {
-          JobPosted: "job_posted",
-          ApplicationSubmitted: "application_submitted",
-          JobAccepted: "job_accepted",
-          WorkSubmitted: "work_submitted",
-          VerdictReceived: args.passed ? "verdict_pass" : "verdict_fail",
-          VerdictOverridden: args.passed ? "verdict_override_pass" : "verdict_override_fail",
-          RewardClaimed: "reward_claimed",
-          JobRefunded: "refund_issued",
-          JobDeleted: "job_deleted",
-          EscrowToppedUp: "escrow_topped_up",
-          WalletBanned: "wallet_banned",
-          WalletUnbanned: "wallet_unbanned"
-        };
-        return {
-          id: `${event.transactionHash}-${index}`,
-          event_type: typeMap[event.eventName] ?? event.eventName,
-          job_id: String(args.jobId ?? ""),
-          actor_wallet: String(args.client ?? args.freelancer ?? ""),
-          target_wallet: null,
-          metadata: Object.fromEntries(Object.entries(args).map(([key, value]) => [key, typeof value === "bigint" ? value.toString() : value])),
-          tx_hash: event.transactionHash,
-          created_at: new Date().toISOString()
-        };
-      });
+
+    const filtered = parsed.filter((event) => {
+      if (!jobId) return true;
+      const args = event.args as Record<string, unknown>;
+      const eventJobId = typeof args.jobId === "string" ? args.jobId : null;
+      return eventJobId ? eventJobId.toLowerCase() === jobId.toLowerCase() : false;
+    });
+
+    const recent = filtered.reverse().slice(0, limit);
+
+    // Batch-fetch unique blocks for timestamps
+    const uniqBlocks = Array.from(new Set(recent.map((e) => e.blockNumber!).filter(Boolean)));
+    const blockResults = await Promise.all(
+      uniqBlocks.map((bn) => publicClient.getBlock({ blockNumber: bn }).catch(() => null))
+    );
+    const blockTimestampByNumber = new Map<bigint, bigint>();
+    uniqBlocks.forEach((bn, i) => {
+      const b = blockResults[i];
+      if (b) blockTimestampByNumber.set(bn, b.timestamp);
+    });
+
+    return recent.map((event, index) => {
+      const args = event.args as Record<string, unknown>;
+      const typeMap: Record<string, string> = {
+        JobPosted: "job_posted",
+        ApplicationSubmitted: "application_submitted",
+        JobAccepted: "job_accepted",
+        WorkSubmitted: "work_submitted",
+        VerdictReceived: args.passed ? "verdict_pass" : "verdict_fail",
+        VerdictOverridden: args.passed ? "verdict_override_pass" : "verdict_override_fail",
+        RewardClaimed: "reward_claimed",
+        JobRefunded: "refund_issued",
+        JobDeleted: "job_deleted",
+        EscrowToppedUp: "escrow_topped_up",
+        WalletBanned: "wallet_banned",
+        WalletUnbanned: "wallet_unbanned"
+      };
+      const ts = event.blockNumber ? blockTimestampByNumber.get(event.blockNumber) : undefined;
+      const created = ts !== undefined ? new Date(Number(ts) * 1000).toISOString() : new Date().toISOString();
+      const rawJobId = typeof args.jobId === "string" ? args.jobId : "";
+      const validJobId = rawJobId.startsWith("0x") && rawJobId.length === 66 ? rawJobId : "";
+      const actor = String(args.client ?? args.freelancer ?? args.wallet ?? args.by ?? "");
+      return {
+        id: `${event.transactionHash}-${index}`,
+        event_type: typeMap[event.eventName] ?? event.eventName,
+        job_id: validJobId,
+        actor_wallet: actor,
+        target_wallet: null,
+        metadata: Object.fromEntries(Object.entries(args).map(([key, value]) => [key, typeof value === "bigint" ? value.toString() : value])),
+        tx_hash: event.transactionHash,
+        created_at: created
+      };
+    });
   } catch (error) {
     console.warn("onchain activity fallback failed", error instanceof Error ? error.message : error);
     return [];

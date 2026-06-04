@@ -1,7 +1,9 @@
 "use client";
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { usePublicClient } from "wagmi";
 import { explorerTxUrl } from "@/lib/contracts";
+import { friendlyTxError } from "@/lib/tx-errors";
 
 type ToastPhase = "signing" | "confirming" | "done" | "error";
 
@@ -30,6 +32,7 @@ const TxToastContext = createContext<Ctx | null>(null);
 let toastCounter = 0;
 
 export function TxToastProvider({ children }: { children: ReactNode }) {
+  const publicClient = usePublicClient();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const remove = useCallback((id: number) => {
@@ -43,26 +46,51 @@ export function TxToastProvider({ children }: { children: ReactNode }) {
   const run = useCallback(async ({ label, pending, success, write, onConfirmed }: RunArgs) => {
     const id = ++toastCounter;
     setToasts((prev) => [...prev, { id, phase: "signing", label }]);
+    let hash: `0x${string}` | undefined;
     try {
-      const hash = await write();
-      update(id, { phase: "confirming", label: pending ?? `Confirming ${label.toLowerCase()}…`, hash });
-      // Optimistically mark as done after a short window — wagmi/viem will already have a receipt
-      setTimeout(() => {
-        update(id, { phase: "done", label: success ?? `${label} confirmed`, hash });
-      }, 1200);
-      setTimeout(() => remove(id), 6000);
-      if (onConfirmed) {
-        await onConfirmed(hash);
-      }
-      return hash;
-    } catch (err: any) {
-      const msg = err?.shortMessage || err?.message || "Transaction failed";
-      const friendly = /user rejected|denied/i.test(msg) ? "You declined the signature" : msg.split("\n")[0].slice(0, 140);
-      update(id, { phase: "error", label, message: friendly });
-      setTimeout(() => remove(id), 6000);
+      hash = await write();
+      update(id, { phase: "confirming", label: pending ?? "Confirming on Arbitrum…", hash });
+    } catch (err) {
+      update(id, { phase: "error", label, message: friendlyTxError(err) });
+      setTimeout(() => remove(id), 7000);
       return undefined;
     }
-  }, [remove, update]);
+
+    if (!publicClient) {
+      // No client to wait on — assume submission counts as success after a small delay
+      update(id, { phase: "done", label: success ?? "Submitted", hash });
+      setTimeout(() => remove(id), 5000);
+      return hash;
+    }
+
+    try {
+      const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+      if (receipt.status === "success") {
+        update(id, { phase: "done", label: success ?? `${label} confirmed`, hash });
+        if (onConfirmed) await onConfirmed(hash);
+        setTimeout(() => remove(id), 5500);
+        return hash;
+      }
+      // Reverted — try to extract a reason
+      let revertMsg = "Transaction reverted on-chain.";
+      try {
+        await publicClient.call({
+          to: receipt.to ?? undefined,
+          data: undefined,
+          blockNumber: receipt.blockNumber
+        });
+      } catch (callErr) {
+        revertMsg = friendlyTxError(callErr);
+      }
+      update(id, { phase: "error", label, message: revertMsg, hash });
+      setTimeout(() => remove(id), 9000);
+      return undefined;
+    } catch (err) {
+      update(id, { phase: "error", label, message: friendlyTxError(err), hash });
+      setTimeout(() => remove(id), 9000);
+      return undefined;
+    }
+  }, [publicClient, remove, update]);
 
   return (
     <TxToastContext.Provider value={{ run }}>

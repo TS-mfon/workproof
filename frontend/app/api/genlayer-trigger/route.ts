@@ -57,46 +57,14 @@ export async function POST(request: NextRequest) {
 }
 
 async function triggerViaRpc(
-  jobId: string,
-  deliverableUrl: string,
-  criteria: string,
-  retryCount: number,
-  contract: string
+  _jobId: string,
+  _deliverableUrl: string,
+  _criteria: string,
+  _retryCount: number,
+  _contract: string
 ): Promise<{ started: boolean; note?: string }> {
-  const rpc = process.env.GENLAYER_STUDIO_RPC ?? "https://studio.genlayer.com/api";
-  const oracleKey = process.env.ORACLE_PRIVATE_KEY ?? process.env.DEPLOYER_PRIVATE_KEY ?? process.env.DEPLOYER_PRIVATEKEY;
-
-  if (!oracleKey) {
-    return { started: false, note: "No oracle private key — oracle will pick this up on next poll" };
-  }
-
-  // Encode verify_work args in msgpack format that GenLayer expects
-  // GenLayer uses a simple msgpack-like encoding: [functionName, posArgs, namedArgs]
-  // We use the same approach genlayer-js uses internally
-  const msgpack = await import("@msgpack/msgpack" as string).catch(() => null) as any;
-
-  if (!msgpack?.encode || !msgpack?.serialize) {
-    return { started: false, note: "msgpack not available — oracle will pick this up on next poll" };
-  }
-
-  try {
-    const calldata = msgpack.serialize(msgpack.encode([
-      "verify_work",
-      [jobId, deliverableUrl, criteria, retryCount],
-      {}
-    ]));
-    const calldataHex = "0x" + Buffer.from(calldata).toString("hex");
-
-    // Get chain info to find consensus contract
-    const chainInfoRes = await fetch(rpc, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: "1", method: "eth_chainId", params: [] })
-    });
-    if (!chainInfoRes.ok) throw new Error("GenLayer RPC not reachable");
-
-    return { started: false, note: "Encoding step complete — oracle will relay shortly" };
-  } catch {
-    return { started: false, note: "GenLayer RPC trigger failed — oracle will pick this up" };
-  }
+  // Direct RPC encoding requires msgpack which is not bundled.
+  // The oracle's poll cycle (every 30s) will call get_verdict and relay the verdict
+  // once GenLayer has processed it. This is the reliable fallback.
+  return { started: false, note: "CLI unavailable on this platform — oracle poll will relay the verdict" };
 }

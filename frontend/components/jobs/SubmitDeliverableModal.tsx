@@ -6,10 +6,7 @@ import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
 
-const GENLAYER_RPC = process.env.NEXT_PUBLIC_GENLAYER_STUDIO_RPC ?? "https://studio.genlayer.com/api";
 const GENLAYER_CONTRACT = process.env.NEXT_PUBLIC_GENLAYER_CONTRACT ?? "0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e";
-
-// Domains GenLayer can properly review
 const SUPPORTED_DOMAINS = ["content", "frontend", "design", "marketing", "research", "smart-contracts"];
 
 // Hosts known to block crawlers / require login
@@ -20,25 +17,6 @@ const UNVERIFIABLE_HOSTS = [
   "drive.google.com", "docs.google.com", "calendly.com", "zoom.us",
   "notion.so", "notion.com", "app.notion.com", "www.notion.com"
 ];
-
-async function triggerGenLayerReview(jobId: string, deliverableUrl: string, acceptanceCriteria: string) {
-  const response = await fetch(GENLAYER_RPC, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: crypto.randomUUID(),
-      method: "gen_callContractMethod",
-      params: {
-        contract: GENLAYER_CONTRACT,
-        method: "verify_work",
-        args: [jobId, deliverableUrl, acceptanceCriteria, 0]
-      }
-    })
-  });
-  if (!response.ok) throw new Error(`GenLayer review request failed (${response.status})`);
-  return response.json();
-}
 
 export function SubmitDeliverableModal({
   jobId,
@@ -137,13 +115,18 @@ export function SubmitDeliverableModal({
     });
     if (!hash) return;
 
-    // After successful submission, immediately trigger GenLayer review
+    // After successful submission, immediately trigger GenLayer review via API
     if (criteria) {
-      try {
-        await triggerGenLayerReview(jobId, url, criteria);
-      } catch (err: any) {
-        console.warn("GenLayer trigger after submit failed — oracle will pick it up:", err?.message);
-      }
+      fetch("/api/genlayer-trigger", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobId, deliverableUrl: url, criteria, retryCount: 0 })
+      }).then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!d.started) {
+          console.info("GenLayer trigger note:", d.note ?? "oracle will pick this up on next poll");
+        }
+      }).catch(() => {});
     }
 
     onSubmitted?.();

@@ -182,6 +182,8 @@ export function JobActionPanel({ job }: { job: Job }) {
 
       <SubmitDeliverableModal
         jobId={job.job_id_onchain}
+        criteria={job.acceptance_criteria}
+        domain={job.domain}
         open={openSubmit}
         onClose={() => setOpenSubmit(false)}
         retry={job.status === "Failed"}

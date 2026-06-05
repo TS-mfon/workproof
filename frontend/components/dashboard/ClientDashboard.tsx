@@ -103,6 +103,9 @@ export function ClientDashboard() {
 
       <section className="grid gap-3">
         <h2 className="text-xl font-bold">Open — awaiting applicants</h2>
+        <p className="text-sm text-muted" style={{ marginTop: 2, marginBottom: 4 }}>
+          Jobs with no assigned freelancer yet. Click Open to review and accept applicants.
+        </p>
         {open.length === 0 ? (
           <EmptyState title="No open jobs" />
         ) : (

@@ -134,6 +134,9 @@ export function PostWizard() {
     }
     const deadlineSec = BigInt(Math.floor(Date.parse(form.deadline) / 1000));
     const assignedAddress = (form.assigned || zeroAddress) as `0x${string}`;
+    // Store the project brief and criteria together so the on-chain fallback can read the full description
+    // Format: PROJECT BRIEF:\n<description>\n\nACCEPTANCE CRITERIA:\n<criteria>
+    const enrichedCriteria = `PROJECT BRIEF:\n${form.description}\n\nACCEPTANCE CRITERIA:\n${form.criteria}\n\nDELIVERABLES:\n- One public URL accessible by any HTTP client.`;
     const hash = await run({
       label: "Posting job",
       pending: "Locking escrow on Arbitrum…",
@@ -143,7 +146,7 @@ export function PostWizard() {
           address: addr,
           abi: workProofAbi,
           functionName: "postJob",
-          args: [form.title, "", form.criteria, form.domain, deadlineSec, assignedAddress],
+          args: [form.title, "", enrichedCriteria, form.domain, deadlineSec, assignedAddress],
           value: parseEther(form.reward)
         })
     });

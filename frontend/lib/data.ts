@@ -2,12 +2,23 @@ import { getSupabaseServer } from "./supabase";
 import { getOnchainActivities, getOnchainJob, getOnchainJobs, getOnchainUsers } from "./onchain";
 import type { Activity, Claim, Job, UserProfile } from "./types";
 
-export async function getJobs(limit = 100) {
+export async function getJobs(limit = 100): Promise<Job[]> {
   const supabase = getSupabaseServer();
   if (!supabase) return getOnchainJobs(limit);
   const { data, error } = await supabase.from("jobs").select("*").order("created_at", { ascending: false }).limit(limit);
   if (error || !data?.length) return getOnchainJobs(limit);
-  return data as Job[];
+  const supabaseJobs = data as unknown as Job[];
+  // Merge on-chain jobs for any that may not be in Supabase yet, deduplicate by job_id_onchain
+  const onchainJobs = await getOnchainJobs(limit);
+  const seen = new Set<string>();
+  const merged: Job[] = [];
+  for (const j of [...supabaseJobs, ...onchainJobs]) {
+    if (!seen.has(j.job_id_onchain)) {
+      seen.add(j.job_id_onchain);
+      merged.push(j);
+    }
+  }
+  return merged.slice(0, limit);
 }
 
 export async function getJob(id: string) {

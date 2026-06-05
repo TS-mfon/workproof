@@ -26,7 +26,9 @@ function safeDate(seconds: bigint | number | string) {
 function descriptionFromCriteria(criteria: string, title: string, rewardAmount: bigint, domain: string) {
   const brief = criteria.match(/PROJECT BRIEF:\s*([\s\S]*?)(?:\n\s*ACCEPTANCE CRITERIA:|\n\s*DELIVERABLES:|$)/i)?.[1]?.trim();
   if (brief) return brief.replace(/\s+/g, " ");
-  return `Onchain WorkProof job for ${title}. Reward ${formatEther(rewardAmount)} ETH, domain ${domain}.`;
+  // Fallback: if criteria is quite long it's probably the raw text, use the first 300 chars
+  if (criteria.length > 60) return criteria.slice(0, 300).replace(/\s+/g, " ") + (criteria.length > 300 ? "…" : "");
+  return title;
 }
 
 function normalizeJob(raw: Awaited<ReturnType<NonNullable<ReturnType<typeof client>>["readContract"]>>): Job {

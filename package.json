@@ -23,6 +23,7 @@
     "stress:post-writing30": "tsx scripts/stress-workproof.ts post-writing30",
     "stress:sync-db": "tsx scripts/stress-workproof.ts sync-db",
     "seed:quality": "tsx scripts/seed-quality-jobs.ts",
+    "seed:fresh": "tsx scripts/seed-fresh.ts",
     "supabase:reset": "psql \"$SUPABASE_DB_URL\" -v ON_ERROR_STOP=1 -f supabase/migrations/000_reset_workproof.sql -f supabase/migrations/001_workproof_schema.sql",
     "oracle:dev": "npm --workspace oracle run dev",
     "frontend:dev": "npm --workspace frontend run dev",
@@ -33,6 +34,7 @@
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
     "@types/node": "^24.10.1",
     "hardhat": "^2.28.0",
+    "pg": "^8.21.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
@@ -65,5 +67,21 @@
   "overrides": {
     "react": "18.3.1",
     "react-dom": "18.3.1"
-  }
+  },
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TS-mfon/workproof.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/TS-mfon/workproof/issues"
+  },
+  "homepage": "https://github.com/TS-mfon/workproof#readme"
 }

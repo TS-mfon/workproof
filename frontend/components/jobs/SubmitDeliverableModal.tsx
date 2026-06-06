@@ -1,12 +1,13 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { useAccount, useChainId, useWriteContract } from "wagmi";
+import { parseEventLogs } from "viem";
+import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi";
 import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
+import { verifySubmission } from "@/lib/genlayer";
 
-const GENLAYER_CONTRACT = process.env.NEXT_PUBLIC_GENLAYER_CONTRACT ?? "0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e";
 const SUPPORTED_DOMAINS = ["content", "frontend", "design", "marketing", "research", "smart-contracts"];
 
 // Hosts known to block crawlers / require login
@@ -37,11 +38,13 @@ export function SubmitDeliverableModal({
 }) {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
   const [url, setUrl] = useState("");
   const [checkingUrl, setCheckingUrl] = useState(false);
   const [urlError, setUrlError] = useState("");
+  const [stage, setStage] = useState<"idle" | "arbitrum" | "genlayer">("idle");
 
   const domainSupported = domain ? SUPPORTED_DOMAINS.includes(domain) : true;
 
@@ -60,23 +63,6 @@ export function SubmitDeliverableModal({
 
   if (!open) return null;
 
-  async function checkDeliverableUrl(deliverableUrl: string): Promise<string | null> {
-    setCheckingUrl(true);
-    setUrlError("");
-    try {
-      const r = await fetch(`/api/check-url?url=${encodeURIComponent(deliverableUrl)}`);
-      const data = await r.json();
-      if (!data.ok) {
-        return data.error || "URL is not accessible by automated systems. Use a public link.";
-      }
-      return null;
-    } catch {
-      return null; // proxy check fails silently — still allow submission
-    } finally {
-      setCheckingUrl(false);
-    }
-  }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setUrlError("");
@@ -94,14 +80,7 @@ export function SubmitDeliverableModal({
       return;
     }
 
-    // Quick accessibility check
-    const checkErr = await checkDeliverableUrl(url);
-    if (checkErr) {
-      setUrlError(checkErr);
-      return;
-    }
-
-    // Submit work on Arbitrum
+    setStage("arbitrum");
     const hash = await run({
       label: retry ? "Resubmitting deliverable" : "Submitting deliverable",
       pending: "Confirming on Arbitrum…",
@@ -113,20 +92,32 @@ export function SubmitDeliverableModal({
         args: [jobId as `0x${string}`, url]
       })
     });
-    if (!hash) return;
+    if (!hash || !publicClient || !address) {
+      setStage("idle");
+      return;
+    }
 
-    // After successful submission, immediately trigger GenLayer review via API
-    if (criteria) {
-      fetch("/api/genlayer-trigger", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jobId, deliverableUrl: url, criteria, retryCount: 0 })
-      }).then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!d.started) {
-          console.info("GenLayer trigger note:", d.note ?? "oracle will pick this up on next poll");
-        }
-      }).catch(() => {});
+    try {
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      const logs = parseEventLogs({ abi: workProofAbi, eventName: "SubmissionRecorded", logs: receipt.logs });
+      const recorded = logs[0]?.args;
+      if (!recorded?.submissionId) throw new Error("Submission was recorded but its ID could not be read.");
+      if (!criteria) throw new Error("Acceptance criteria are unavailable.");
+      setStage("genlayer");
+      await verifySubmission({
+        address,
+        jobId,
+        submissionId: recorded.submissionId,
+        deliverableUrl: url,
+        criteria,
+        attempt: Number(recorded.attempt)
+      });
+    } catch (error) {
+      setStage("idle");
+      setUrlError(error instanceof Error
+        ? `${error.message} Your Arbitrum submission is saved. Use Complete GenLayer Review on the job page to retry.`
+        : "GenLayer review could not start. Your Arbitrum submission is saved.");
+      return;
     }
 
     onSubmitted?.();
@@ -192,8 +183,8 @@ export function SubmitDeliverableModal({
 
         <div className="flex gap-2 justify-end">
           <button type="button" className="btn ghost" onClick={onClose} disabled={isPending || checkingUrl}>Cancel</button>
-          <button className="btn" disabled={isPending || checkingUrl || !url}>
-            {isPending ? "Submitting…" : checkingUrl ? "Checking URL…" : retry ? "Resubmit" : "Submit"}
+          <button className="btn" disabled={isPending || checkingUrl || stage !== "idle" || !url}>
+            {stage === "arbitrum" ? "Recording submission…" : stage === "genlayer" ? "Sign GenLayer review…" : retry ? "Resubmit" : "Submit & verify"}
           </button>
         </div>
       </form>

@@ -1,4 +1,5 @@
-export type JobStatus = "Open" | "Active" | "UnderReview" | "Failed" | "Passed" | "Complete" | "Refunded" | "Deleted";
+export type JobStatus = "Open" | "Active" | "UnderReview" | "Failed" | "AwaitingApproval" | "Passed" | "Complete" | "Refunded" | "Deleted";
+export type JobMode = "Application" | "Direct" | "Competitive";
 
 export type Notification = {
   id: string;
@@ -64,6 +65,8 @@ export type Job = {
   deadline: string;
   created_at: string;
   completed_at: string | null;
+  mode?: JobMode;
+  approved_submission_id?: string | null;
 };
 
 export type UserProfile = {

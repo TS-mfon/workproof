@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { WalletButton } from "@/components/shared/WalletButton";
+import { ProtocolNotifications } from "@/components/shared/ProtocolNotifications";
 
 const links = [
   ["/jobs", "Jobs"],
@@ -24,7 +25,7 @@ export function Navbar() {
             </Link>
           ))}
         </nav>
-        <WalletButton />
+        <div className="flex items-center gap-2"><ProtocolNotifications /><WalletButton /></div>
       </div>
     </header>
   );

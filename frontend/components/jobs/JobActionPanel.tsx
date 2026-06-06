@@ -93,12 +93,19 @@ export function JobActionPanel({ job }: { job: Job }) {
         </div>
       ) : null}
 
-      {job.status === "Open" && !isClient && !hasApplied && (
+      {job.status === "Open" && job.mode !== "Competitive" && !isClient && !hasApplied && (
         <>
           <button className="btn" disabled={isPending} onClick={() => call("applyForJob", "Applying for job")}>
             Apply for this job
           </button>
           <p className="text-xs text-muted">You'll be added to the applicants list. The client picks one freelancer.</p>
+        </>
+      )}
+
+      {job.status === "Open" && job.mode === "Competitive" && !isClient && (
+        <>
+          <button className="btn" disabled={isPending} onClick={() => setOpenSubmit(true)}>Submit competitive entry</button>
+          <p className="text-xs text-muted">Up to three attempts. GenLayer ranks passing submissions and the client approves the highest score after the deadline.</p>
         </>
       )}
 
@@ -135,6 +142,14 @@ export function JobActionPanel({ job }: { job: Job }) {
         </div>
       )}
 
+      {job.status === "UnderReview" && job.mode === "Competitive" && !isClient && (
+        <button className="btn ghost" disabled={isPending} onClick={() => setOpenSubmit(true)}>Submit another attempt</button>
+      )}
+
+      {job.status === "AwaitingApproval" && (
+        <p className="text-sm text-muted">GenLayer review is complete. Waiting for the client to approve the submission before reward claim.</p>
+      )}
+
       {job.status === "Failed" && isFreelancer && job.retry_count < 3 && (
         <>
           <button className="btn" disabled={isPending} onClick={() => setOpenSubmit(true)}>
@@ -161,7 +176,7 @@ export function JobActionPanel({ job }: { job: Job }) {
 
       {job.status === "Passed" && isClient && (
         <>
-          <p className="text-sm text-muted">AI approved the work. Freelancer can now claim.</p>
+          <p className="text-sm text-muted">You accepted this work. The freelancer can now claim.</p>
           <button className="btn ghost tiny" onClick={() => setOpenDispute(true)}>
             Open dispute
           </button>

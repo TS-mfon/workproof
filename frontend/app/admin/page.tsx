@@ -20,7 +20,7 @@ export default async function AdminPage() {
     { label: "Banned wallets", value: banned.toString() }
   ];
 
-  const statusOrder = ["Open", "Active", "UnderReview", "Failed", "Passed", "Complete", "Refunded", "Deleted"];
+  const statusOrder = ["Open", "Active", "UnderReview", "Failed", "AwaitingApproval", "Passed", "Complete", "Refunded", "Deleted"];
 
   return (
     <div className="grid gap-6">

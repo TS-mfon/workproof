@@ -174,8 +174,14 @@ Completed stress result:
 
 For production stress runs, set:
 
-- `WORKPROOF_CONTRACT=0x6f20e728a36c710ba7ECe9b3378Cb14A69eE0b1B`
-- `GENLAYER_CONTRACT=0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e`
+- `WORKPROOF_CONTRACT=0xA2BD5625E382eB759379681C69f319501b7BA7F1`
+- `GENLAYER_CONTRACT=0x08DCD81C82D1760993E629ad8D6753FFE4739179`
+
+## V3 frontend-driven review flow
+
+WorkProof V3 does not require the oracle service for submission, review, approval, or claims. The freelancer records a submission on Arbitrum Sepolia, then signs the GenLayer StudioNet verification from the browser. The UI reads verdicts and competitive rankings directly from GenLayer. The client approves the highest passing submission on Arbitrum, which makes the reward claimable by the selected freelancer.
+
+Competitive jobs accept up to three submissions per freelancer and only unlock client approval after the deadline. Direct and application jobs can be approved immediately after a passing GenLayer verdict.
 - `WORKPROOF_APP_URL=https://workproof-gen-daves-projects.vercel.app`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_KEY`

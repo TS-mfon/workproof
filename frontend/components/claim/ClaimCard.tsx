@@ -28,11 +28,6 @@ export function ClaimCard({ claim }: { claim: Claim }) {
     });
     if (!hash) return;
     setClaimed(true);
-    fetch("/api/jobs", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ job_id_onchain: claim.job_id_onchain, status: "Complete", claim_id: claim.id, tx_hash: hash })
-    }).catch(() => {});
   }
 
   return (

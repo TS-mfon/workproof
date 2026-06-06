@@ -4,7 +4,8 @@ const steps: { key: JobStatus; label: string }[] = [
   { key: "Open", label: "Posted" },
   { key: "Active", label: "In Progress" },
   { key: "UnderReview", label: "AI Review" },
-  { key: "Passed", label: "Approved" },
+  { key: "AwaitingApproval", label: "Client Review" },
+  { key: "Passed", label: "Accepted" },
   { key: "Complete", label: "Paid Out" }
 ];
 

@@ -3,6 +3,7 @@ import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { JobActionPanel } from "@/components/jobs/JobActionPanel";
 import { ApplicantsPanel } from "@/components/jobs/ApplicantsPanel";
 import { SubmissionPanel } from "@/components/jobs/SubmissionPanel";
+import { SubmissionRankingPanel } from "@/components/jobs/SubmissionRankingPanel";
 import { JobStatusBadge } from "@/components/jobs/JobStatusBadge";
 import { StatusTimeline } from "@/components/jobs/StatusTimeline";
 import { AddressDisplay } from "@/components/shared/AddressDisplay";
@@ -56,6 +57,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         </div>
 
         <SubmissionPanel job={job} />
+        <SubmissionRankingPanel job={job} />
 
         <ApplicantsPanel job={job} />
 

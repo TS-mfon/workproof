@@ -16,6 +16,7 @@ type FormState = {
   deadline: string;
   criteria: string;
   assigned: string;
+  mode: "application" | "direct" | "competitive";
 };
 
 const STEPS = ["Details", "Escrow", "Criteria", "Review"];
@@ -27,7 +28,8 @@ const initial: FormState = {
   reward: "0.005",
   deadline: defaultDeadline(),
   criteria: "",
-  assigned: ""
+  assigned: "",
+  mode: "competitive"
 };
 
 function defaultDeadline() {
@@ -94,7 +96,7 @@ export function PostWizard() {
       if (!form.criteria || form.criteria.length < 30) e.criteria = "Acceptance criteria need to be specific (30 chars minimum).";
       if (form.criteria.length > 6000) e.criteria = "Criteria over the 6000 char limit.";
     }
-    if (form.assigned && (!form.assigned.startsWith("0x") || form.assigned.length !== 42)) {
+    if (form.mode === "direct" && (!form.assigned.startsWith("0x") || form.assigned.length !== 42)) {
       e.assigned = "Assigned address must be a valid 0x… wallet.";
     }
     return e;
@@ -133,7 +135,8 @@ export function PostWizard() {
       return;
     }
     const deadlineSec = BigInt(Math.floor(Date.parse(form.deadline) / 1000));
-    const assignedAddress = (form.assigned || zeroAddress) as `0x${string}`;
+    const assignedAddress = (form.mode === "direct" ? form.assigned : zeroAddress) as `0x${string}`;
+    const mode = form.mode === "application" ? 0 : form.mode === "direct" ? 1 : 2;
     // Store the project brief and criteria together so the on-chain fallback can read the full description
     // Format: PROJECT BRIEF:\n<description>\n\nACCEPTANCE CRITERIA:\n<criteria>
     const enrichedCriteria = `PROJECT BRIEF:\n${form.description}\n\nACCEPTANCE CRITERIA:\n${form.criteria}\n\nDELIVERABLES:\n- One public URL accessible by any HTTP client.`;
@@ -145,8 +148,8 @@ export function PostWizard() {
         writeContractAsync({
           address: addr,
           abi: workProofAbi,
-          functionName: "postJob",
-          args: [form.title, "", enrichedCriteria, form.domain, deadlineSec, assignedAddress],
+          functionName: "postJobV3",
+          args: [form.title, "", enrichedCriteria, form.domain, deadlineSec, assignedAddress, mode],
           value: parseEther(form.reward)
         })
     });
@@ -165,7 +168,7 @@ export function PostWizard() {
         body: JSON.stringify({
           job_id_onchain: jobId,
           client_wallet: address,
-          assigned_to_wallet: form.assigned || null,
+          assigned_to_wallet: form.mode === "direct" ? form.assigned : null,
           title: form.title,
           description: form.description,
           spec_ipfs_hash: null,
@@ -173,7 +176,7 @@ export function PostWizard() {
           domain: form.domain,
           escrow_amount_wei: parseEther(form.reward).toString(),
           reward_amount_wei: parseEther(form.reward).toString(),
-          status: form.assigned ? "Active" : "Open",
+          status: form.mode === "direct" ? "Active" : "Open",
           deadline: new Date(Number(deadlineSec) * 1000).toISOString(),
           tx_hash: hash
         })
@@ -323,14 +326,21 @@ function StepCriteria({ form, set, errors }: { form: FormState; set: any; errors
           </ul>
         </div>
       )}
-      <Field label="Assign to a specific freelancer? (optional)" error={errors.assigned} hint="Skips applications and goes straight to Active.">
+      <Field label="Job mode" hint="Competitive tasks accept multiple submissions and rank the highest passing GenLayer score.">
+        <select className="input" value={form.mode} onChange={(e) => set("mode")(e.target.value)}>
+          <option value="competitive">Competitive task</option>
+          <option value="application">Applications, then select one freelancer</option>
+          <option value="direct">Direct assignment</option>
+        </select>
+      </Field>
+      {form.mode === "direct" && <Field label="Assign to a specific freelancer" error={errors.assigned} hint="Skips applications and goes straight to Active.">
         <input
           className="input"
           value={form.assigned}
           onChange={(e) => set("assigned")(e.target.value)}
-          placeholder="0x… or leave empty to open applications"
+          placeholder="0x…"
         />
-      </Field>
+      </Field>}
     </>
   );
 }
@@ -345,7 +355,8 @@ function StepReview({ form }: { form: FormState }) {
         <ReviewRow label="Domain" value={form.domain} />
         <ReviewRow label="Reward" value={`${form.reward} ETH`} />
         <ReviewRow label="Deadline" value={new Date(form.deadline).toLocaleString()} />
-        <ReviewRow label="Assigned to" value={form.assigned || "Open applications"} mono={!!form.assigned} />
+        <ReviewRow label="Mode" value={form.mode} />
+        {form.mode === "direct" && <ReviewRow label="Assigned to" value={form.assigned} mono />}
         <div>
           <div className="text-xs uppercase tracking-wide font-bold text-muted">Brief</div>
           <p style={{ fontSize: 14, marginTop: 6, whiteSpace: "pre-wrap" }}>{form.description}</p>

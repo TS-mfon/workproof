@@ -14,3 +14,4 @@ typechain-types/
 deployments/*.local.json
 npm-debug.log*
 *:Zone.Identifier
+.vercel

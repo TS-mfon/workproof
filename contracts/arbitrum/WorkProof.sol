@@ -7,10 +7,23 @@ contract WorkProof {
         Active,
         UnderReview,
         Failed,
+        AwaitingApproval,
         Passed,
         Complete,
         Refunded,
         Deleted
+    }
+
+    enum JobMode {
+        Application,
+        Direct,
+        Competitive
+    }
+
+    enum SubmissionStatus {
+        UnderReview,
+        Rejected,
+        Approved
     }
 
     struct Job {
@@ -30,6 +43,20 @@ contract WorkProof {
         uint256 retryCount;
         bytes32 genLayerJobId;
         uint256 verdictAt;
+        JobMode mode;
+        bytes32 approvedSubmissionId;
+    }
+
+    struct Submission {
+        bytes32 submissionId;
+        bytes32 jobId;
+        address freelancer;
+        string deliverableUrl;
+        uint256 attempt;
+        SubmissionStatus status;
+        uint256 submittedAt;
+        uint256 qualityScore;
+        string reasoning;
     }
 
     struct FreelancerProfile {
@@ -59,6 +86,10 @@ contract WorkProof {
     mapping(bytes32 => mapping(address => bool)) public hasApplied;
     mapping(bytes32 => bool) public rewardClaimed;
     mapping(bytes32 => uint256) public verdictQualityScore;
+    mapping(bytes32 => Submission) private submissions;
+    mapping(bytes32 => bool) public submissionExists;
+    mapping(bytes32 => bytes32[]) private jobSubmissions;
+    mapping(bytes32 => mapping(address => uint256)) public submissionAttempts;
     mapping(address => FreelancerProfile) private profiles;
     mapping(address => bool) private profileSeen;
 
@@ -69,6 +100,9 @@ contract WorkProof {
     event ApplicationSubmitted(bytes32 indexed jobId, address indexed freelancer);
     event JobAccepted(bytes32 indexed jobId, address indexed freelancer);
     event WorkSubmitted(bytes32 indexed jobId, address indexed freelancer, string deliverableUrl);
+    event SubmissionRecorded(bytes32 indexed jobId, bytes32 indexed submissionId, address indexed freelancer, uint256 attempt, string deliverableUrl);
+    event SubmissionRejected(bytes32 indexed jobId, bytes32 indexed submissionId, address indexed freelancer, string reasoning);
+    event ClientApproved(bytes32 indexed jobId, bytes32 indexed submissionId, address indexed freelancer, uint256 qualityScore, string reasoning);
     event VerdictReceived(bytes32 indexed jobId, bool passed, uint8 paymentPct, string reasoning);
     event VerdictOverridden(bytes32 indexed jobId, bool passed, uint8 paymentPct, address indexed by, string reasoning);
     event RewardClaimed(bytes32 indexed jobId, address indexed freelancer, uint256 amount);
@@ -135,12 +169,40 @@ contract WorkProof {
         uint256 deadline,
         address assignedFreelancer
     ) external payable notBanned returns (bytes32 jobId) {
+        JobMode mode = assignedFreelancer == address(0) ? JobMode.Application : JobMode.Direct;
+        return _postJob(title, specHash, criteria, domain, deadline, assignedFreelancer, mode);
+    }
+
+    function postJobV3(
+        string calldata title,
+        string calldata specHash,
+        string calldata criteria,
+        string calldata domain,
+        uint256 deadline,
+        address assignedFreelancer,
+        JobMode mode
+    ) external payable notBanned returns (bytes32 jobId) {
+        return _postJob(title, specHash, criteria, domain, deadline, assignedFreelancer, mode);
+    }
+
+    function _postJob(
+        string calldata title,
+        string calldata specHash,
+        string calldata criteria,
+        string calldata domain,
+        uint256 deadline,
+        address assignedFreelancer,
+        JobMode mode
+    ) internal returns (bytes32 jobId) {
         require(msg.value > 0, "ESCROW_REQUIRED");
         require(deadline > block.timestamp, "DEADLINE_IN_PAST");
         require(bytes(title).length > 0, "TITLE_REQUIRED");
         require(bytes(criteria).length > 0, "CRITERIA_REQUIRED");
-        if (assignedFreelancer != address(0)) {
+        if (mode == JobMode.Direct) {
+            require(assignedFreelancer != address(0), "DIRECT_ASSIGNEE_REQUIRED");
             require(!bannedWallets[assignedFreelancer], "ASSIGNEE_BANNED");
+        } else {
+            require(assignedFreelancer == address(0), "ASSIGNEE_NOT_ALLOWED");
         }
 
         jobId = keccak256(abi.encodePacked(msg.sender, title, block.timestamp, jobNonce++));
@@ -157,12 +219,14 @@ contract WorkProof {
             acceptanceCriteria: criteria,
             domain: domain,
             deliverableUrl: "",
-            status: assignedFreelancer == address(0) ? JobStatus.Open : JobStatus.Active,
+            status: mode == JobMode.Direct ? JobStatus.Active : JobStatus.Open,
             createdAt: block.timestamp,
             deadline: deadline,
             retryCount: 0,
             genLayerJobId: genLayerJobId,
-            verdictAt: 0
+            verdictAt: 0,
+            mode: mode,
+            approvedSubmissionId: bytes32(0)
         });
 
         jobExists[jobId] = true;
@@ -170,7 +234,7 @@ contract WorkProof {
         totalEscrowed += msg.value;
 
         emit JobPosted(jobId, msg.sender, msg.value, domain, assignedFreelancer);
-        if (assignedFreelancer != address(0)) {
+        if (mode == JobMode.Direct) {
             emit JobAccepted(jobId, assignedFreelancer);
         }
     }
@@ -178,6 +242,7 @@ contract WorkProof {
     function applyForJob(bytes32 jobId) external jobAvailable(jobId) notBanned {
         Job storage job = jobs[jobId];
         require(msg.sender != job.client, "CLIENT_CANNOT_APPLY");
+        require(job.mode != JobMode.Competitive, "COMPETITIVE_NO_APPLICATION");
 
         if (job.assignedFreelancer != address(0)) {
             require(job.assignedFreelancer == msg.sender, "NOT_ASSIGNED");
@@ -196,6 +261,7 @@ contract WorkProof {
     function acceptApplication(bytes32 jobId, address freelancer) external jobAvailable(jobId) notBanned {
         Job storage job = jobs[jobId];
         require(msg.sender == job.client, "ONLY_CLIENT");
+        require(job.mode == JobMode.Application, "NOT_APPLICATION_JOB");
         require(job.status == JobStatus.Open, "NOT_OPEN");
         require(hasApplied[jobId][freelancer], "NO_APPLICATION");
         require(freelancer != address(0), "ZERO_FREELANCER");
@@ -206,16 +272,93 @@ contract WorkProof {
         emit JobAccepted(jobId, freelancer);
     }
 
-    function submitWork(bytes32 jobId, string calldata deliverableUrl) external jobAvailable(jobId) notBanned {
+    function submitWork(bytes32 jobId, string calldata deliverableUrl) external jobAvailable(jobId) notBanned returns (bytes32 submissionId) {
         Job storage job = jobs[jobId];
-        require(job.assignedFreelancer == msg.sender, "ONLY_FREELANCER");
-        require(job.status == JobStatus.Active || job.status == JobStatus.Failed, "NOT_SUBMITTABLE");
         require(block.timestamp <= job.deadline, "DEADLINE_PASSED");
         require(bytes(deliverableUrl).length > 0, "URL_REQUIRED");
+        require(submissionAttempts[jobId][msg.sender] < 3, "MAX_ATTEMPTS");
+
+        if (job.mode == JobMode.Competitive) {
+            require(job.status == JobStatus.Open || job.status == JobStatus.UnderReview || job.status == JobStatus.AwaitingApproval, "NOT_SUBMITTABLE");
+            require(msg.sender != job.client, "CLIENT_CANNOT_SUBMIT");
+        } else {
+            require(job.assignedFreelancer == msg.sender, "ONLY_FREELANCER");
+            require(
+                job.status == JobStatus.Active ||
+                job.status == JobStatus.UnderReview ||
+                job.status == JobStatus.Failed ||
+                job.status == JobStatus.AwaitingApproval,
+                "NOT_SUBMITTABLE"
+            );
+        }
 
         job.deliverableUrl = deliverableUrl;
         job.status = JobStatus.UnderReview;
+        uint256 attempt = ++submissionAttempts[jobId][msg.sender];
+        submissionId = keccak256(abi.encodePacked(jobId, msg.sender, attempt, deliverableUrl));
+        submissions[submissionId] = Submission({
+            submissionId: submissionId,
+            jobId: jobId,
+            freelancer: msg.sender,
+            deliverableUrl: deliverableUrl,
+            attempt: attempt,
+            status: SubmissionStatus.UnderReview,
+            submittedAt: block.timestamp,
+            qualityScore: 0,
+            reasoning: ""
+        });
+        submissionExists[submissionId] = true;
+        jobSubmissions[jobId].push(submissionId);
         emit WorkSubmitted(jobId, msg.sender, deliverableUrl);
+        emit SubmissionRecorded(jobId, submissionId, msg.sender, attempt, deliverableUrl);
+    }
+
+    function approveSubmission(
+        bytes32 jobId,
+        bytes32 submissionId,
+        uint8 qualityScore,
+        string calldata reasoning
+    ) external jobAvailable(jobId) notBanned {
+        Job storage job = jobs[jobId];
+        require(msg.sender == job.client, "ONLY_CLIENT");
+        require(submissionExists[submissionId], "SUBMISSION_NOT_FOUND");
+        Submission storage submission = submissions[submissionId];
+        require(submission.jobId == jobId, "WRONG_JOB");
+        require(submission.status == SubmissionStatus.UnderReview, "SUBMISSION_RESOLVED");
+        if (job.mode == JobMode.Competitive) {
+            require(block.timestamp > job.deadline, "COMPETITION_ACTIVE");
+        }
+
+        submission.status = SubmissionStatus.Approved;
+        submission.qualityScore = qualityScore;
+        submission.reasoning = reasoning;
+        job.assignedFreelancer = submission.freelancer;
+        job.deliverableUrl = submission.deliverableUrl;
+        job.approvedSubmissionId = submissionId;
+        job.rewardAmount = job.escrowAmount;
+        job.status = JobStatus.Passed;
+        job.verdictAt = block.timestamp;
+        verdictQualityScore[jobId] = qualityScore;
+        emit ClientApproved(jobId, submissionId, submission.freelancer, qualityScore, reasoning);
+        emit VerdictReceived(jobId, true, qualityScore, reasoning);
+    }
+
+    function rejectSubmission(bytes32 jobId, bytes32 submissionId, string calldata reasoning) external jobAvailable(jobId) notBanned {
+        Job storage job = jobs[jobId];
+        require(msg.sender == job.client, "ONLY_CLIENT");
+        require(job.mode != JobMode.Competitive, "COMPETITIVE_RANKING_FINAL");
+        require(submissionExists[submissionId], "SUBMISSION_NOT_FOUND");
+        Submission storage submission = submissions[submissionId];
+        require(submission.jobId == jobId, "WRONG_JOB");
+        require(submission.status == SubmissionStatus.UnderReview, "SUBMISSION_RESOLVED");
+
+        submission.status = SubmissionStatus.Rejected;
+        submission.reasoning = reasoning;
+        job.retryCount = submissionAttempts[jobId][submission.freelancer];
+        job.status = job.retryCount >= 3 ? JobStatus.AwaitingApproval : JobStatus.Failed;
+        _recordFailedJob(submission.freelancer, jobId, job.domain);
+        emit SubmissionRejected(jobId, submissionId, submission.freelancer, reasoning);
+        emit VerdictReceived(jobId, false, 0, reasoning);
     }
 
     function receiveVerdict(
@@ -234,7 +377,7 @@ contract WorkProof {
             uint256 pct = paymentPct == 0 ? 100 : paymentPct;
             job.rewardAmount = (job.escrowAmount * pct) / 100;
             verdictQualityScore[jobId] = pct;
-            job.status = JobStatus.Passed;
+            job.status = JobStatus.AwaitingApproval;
             job.verdictAt = block.timestamp;
             return;
         }
@@ -271,7 +414,7 @@ contract WorkProof {
             uint256 pct = paymentPct == 0 ? 100 : paymentPct;
             job.rewardAmount = (job.escrowAmount * pct) / 100;
             verdictQualityScore[jobId] = pct;
-            job.status = JobStatus.Passed;
+            job.status = JobStatus.AwaitingApproval;
         } else {
             job.status = JobStatus.Failed;
         }
@@ -281,7 +424,7 @@ contract WorkProof {
 
     function claimReward(bytes32 jobId) external nonReentrant jobAvailable(jobId) notBanned {
         Job storage job = jobs[jobId];
-        require(job.status == JobStatus.Passed, "NOT_PASSED");
+        require(job.status == JobStatus.Passed, "NOT_CLIENT_APPROVED");
         require(job.assignedFreelancer == msg.sender, "ONLY_FREELANCER");
         require(!rewardClaimed[jobId], "ALREADY_CLAIMED");
         require(block.timestamp >= job.verdictAt + disputeWindow, "DISPUTE_WINDOW");
@@ -309,6 +452,7 @@ contract WorkProof {
     function autoRefund(bytes32 jobId) external onlyOracle nonReentrant jobAvailable(jobId) {
         Job storage job = jobs[jobId];
         require(
+            job.status != JobStatus.AwaitingApproval &&
             job.status != JobStatus.Passed &&
             job.status != JobStatus.Complete &&
             job.status != JobStatus.Refunded &&
@@ -333,7 +477,8 @@ contract WorkProof {
             job.status == JobStatus.Open ||
             job.status == JobStatus.Active ||
             job.status == JobStatus.UnderReview ||
-            job.status == JobStatus.Failed,
+            job.status == JobStatus.Failed ||
+            job.status == JobStatus.AwaitingApproval,
             "TOPUP_NOT_ALLOWED"
         );
         job.escrowAmount += msg.value;
@@ -448,6 +593,16 @@ contract WorkProof {
     function getApplicants(bytes32 jobId) external view returns (address[] memory) {
         require(jobExists[jobId], "JOB_NOT_FOUND");
         return applicants[jobId];
+    }
+
+    function getSubmission(bytes32 submissionId) external view returns (Submission memory) {
+        require(submissionExists[submissionId], "SUBMISSION_NOT_FOUND");
+        return submissions[submissionId];
+    }
+
+    function getJobSubmissions(bytes32 jobId) external view returns (bytes32[] memory) {
+        require(jobExists[jobId], "JOB_NOT_FOUND");
+        return jobSubmissions[jobId];
     }
 
     function getProfile(address wallet) external view returns (FreelancerProfile memory) {

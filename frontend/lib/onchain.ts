@@ -11,7 +11,8 @@ import { workProofAbi, workProofAddress } from "./contracts";
 import type { Activity, Job, JobStatus, UserProfile } from "./types";
 
 const zeroAddress = "0x0000000000000000000000000000000000000000";
-const statusLabels: JobStatus[] = ["Open", "Active", "UnderReview", "Failed", "Passed", "Complete", "Refunded", "Deleted"];
+const statusLabels: JobStatus[] = ["Open", "Active", "UnderReview", "Failed", "AwaitingApproval", "Passed", "Complete", "Refunded", "Deleted"];
+const modeLabels = ["Application", "Direct", "Competitive"] as const;
 
 function client() {
   const rpc = process.env.NEXT_PUBLIC_ARBITRUM_SEPOLIA_RPC ?? process.env.ARBITRUM_SEPOLIA_RPC ?? "https://sepolia-rollup.arbitrum.io/rpc";
@@ -47,6 +48,8 @@ function normalizeJob(raw: Awaited<ReturnType<NonNullable<ReturnType<typeof clie
     createdAt: bigint;
     deadline: bigint;
     retryCount: bigint;
+    mode: number;
+    approvedSubmissionId: Hex;
   };
   const freelancer = job.assignedFreelancer === zeroAddress ? null : getAddress(job.assignedFreelancer);
   return {
@@ -68,7 +71,9 @@ function normalizeJob(raw: Awaited<ReturnType<NonNullable<ReturnType<typeof clie
     ai_verdict: job.status >= 3 ? { source: "onchain", status: statusLabels[job.status] } : null,
     deadline: safeDate(job.deadline),
     created_at: safeDate(job.createdAt),
-    completed_at: job.status === 5 ? new Date().toISOString() : null
+    completed_at: job.status === 6 ? new Date().toISOString() : null,
+    mode: modeLabels[job.mode] ?? "Application",
+    approved_submission_id: job.approvedSubmissionId && job.approvedSubmissionId !== `0x${"0".repeat(64)}` ? job.approvedSubmissionId : null
   };
 }
 
@@ -147,6 +152,9 @@ export async function getOnchainActivities(limit = 20, jobId?: string): Promise<
         "ApplicationSubmitted",
         "JobAccepted",
         "WorkSubmitted",
+        "SubmissionRecorded",
+        "SubmissionRejected",
+        "ClientApproved",
         "VerdictReceived",
         "VerdictOverridden",
         "RewardClaimed",
@@ -185,6 +193,9 @@ export async function getOnchainActivities(limit = 20, jobId?: string): Promise<
         ApplicationSubmitted: "application_submitted",
         JobAccepted: "job_accepted",
         WorkSubmitted: "work_submitted",
+        SubmissionRecorded: "submission_recorded",
+        SubmissionRejected: "submission_rejected",
+        ClientApproved: "client_approved",
         VerdictReceived: args.passed ? "verdict_pass" : "verdict_fail",
         VerdictOverridden: args.passed ? "verdict_override_pass" : "verdict_override_fail",
         RewardClaimed: "reward_claimed",

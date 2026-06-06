@@ -25,7 +25,21 @@ const jobTupleComponents = [
   { name: "deadline", type: "uint256" },
   { name: "retryCount", type: "uint256" },
   { name: "genLayerJobId", type: "bytes32" },
-  { name: "verdictAt", type: "uint256" }
+  { name: "verdictAt", type: "uint256" },
+  { name: "mode", type: "uint8" },
+  { name: "approvedSubmissionId", type: "bytes32" }
+] as const;
+
+const submissionTupleComponents = [
+  { name: "submissionId", type: "bytes32" },
+  { name: "jobId", type: "bytes32" },
+  { name: "freelancer", type: "address" },
+  { name: "deliverableUrl", type: "string" },
+  { name: "attempt", type: "uint256" },
+  { name: "status", type: "uint8" },
+  { name: "submittedAt", type: "uint256" },
+  { name: "qualityScore", type: "uint256" },
+  { name: "reasoning", type: "string" }
 ] as const;
 
 export const workProofAbi = [
@@ -39,6 +53,9 @@ export const workProofAbi = [
   { type: "event", name: "ApplicationSubmitted", inputs: [{ name: "jobId", type: "bytes32", indexed: true }, { name: "freelancer", type: "address", indexed: true }] },
   { type: "event", name: "JobAccepted", inputs: [{ name: "jobId", type: "bytes32", indexed: true }, { name: "freelancer", type: "address", indexed: true }] },
   { type: "event", name: "WorkSubmitted", inputs: [{ name: "jobId", type: "bytes32", indexed: true }, { name: "freelancer", type: "address", indexed: true }, { name: "deliverableUrl", type: "string", indexed: false }] },
+  { type: "event", name: "SubmissionRecorded", inputs: [{ name: "jobId", type: "bytes32", indexed: true }, { name: "submissionId", type: "bytes32", indexed: true }, { name: "freelancer", type: "address", indexed: true }, { name: "attempt", type: "uint256", indexed: false }, { name: "deliverableUrl", type: "string", indexed: false }] },
+  { type: "event", name: "SubmissionRejected", inputs: [{ name: "jobId", type: "bytes32", indexed: true }, { name: "submissionId", type: "bytes32", indexed: true }, { name: "freelancer", type: "address", indexed: true }, { name: "reasoning", type: "string", indexed: false }] },
+  { type: "event", name: "ClientApproved", inputs: [{ name: "jobId", type: "bytes32", indexed: true }, { name: "submissionId", type: "bytes32", indexed: true }, { name: "freelancer", type: "address", indexed: true }, { name: "qualityScore", type: "uint256", indexed: false }, { name: "reasoning", type: "string", indexed: false }] },
   { type: "event", name: "VerdictReceived", inputs: [{ name: "jobId", type: "bytes32", indexed: true }, { name: "passed", type: "bool", indexed: false }, { name: "paymentPct", type: "uint8", indexed: false }, { name: "reasoning", type: "string", indexed: false }] },
   { type: "event", name: "VerdictOverridden", inputs: [{ name: "jobId", type: "bytes32", indexed: true }, { name: "passed", type: "bool", indexed: false }, { name: "paymentPct", type: "uint8", indexed: false }, { name: "by", type: "address", indexed: true }, { name: "reasoning", type: "string", indexed: false }] },
   { type: "event", name: "RewardClaimed", inputs: [{ name: "jobId", type: "bytes32", indexed: true }, { name: "freelancer", type: "address", indexed: true }, { name: "amount", type: "uint256", indexed: false }] },
@@ -65,9 +82,20 @@ export const workProofAbi = [
     { name: "deadline", type: "uint256" },
     { name: "assignedFreelancer", type: "address" }
   ], outputs: [{ name: "jobId", type: "bytes32" }] },
+  { type: "function", name: "postJobV3", stateMutability: "payable", inputs: [
+    { name: "title", type: "string" },
+    { name: "specHash", type: "string" },
+    { name: "criteria", type: "string" },
+    { name: "domain", type: "string" },
+    { name: "deadline", type: "uint256" },
+    { name: "assignedFreelancer", type: "address" },
+    { name: "mode", type: "uint8" }
+  ], outputs: [{ name: "jobId", type: "bytes32" }] },
   { type: "function", name: "applyForJob", stateMutability: "nonpayable", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [] },
   { type: "function", name: "acceptApplication", stateMutability: "nonpayable", inputs: [{ name: "jobId", type: "bytes32" }, { name: "freelancer", type: "address" }], outputs: [] },
   { type: "function", name: "submitWork", stateMutability: "nonpayable", inputs: [{ name: "jobId", type: "bytes32" }, { name: "deliverableUrl", type: "string" }], outputs: [] },
+  { type: "function", name: "approveSubmission", stateMutability: "nonpayable", inputs: [{ name: "jobId", type: "bytes32" }, { name: "submissionId", type: "bytes32" }, { name: "qualityScore", type: "uint8" }, { name: "reasoning", type: "string" }], outputs: [] },
+  { type: "function", name: "rejectSubmission", stateMutability: "nonpayable", inputs: [{ name: "jobId", type: "bytes32" }, { name: "submissionId", type: "bytes32" }, { name: "reasoning", type: "string" }], outputs: [] },
   { type: "function", name: "claimReward", stateMutability: "nonpayable", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [] },
   { type: "function", name: "cancelJob", stateMutability: "nonpayable", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [] },
   { type: "function", name: "topUpEscrow", stateMutability: "payable", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [] },
@@ -107,6 +135,9 @@ export const workProofAbi = [
   { type: "function", name: "rewardClaimed", stateMutability: "view", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [{ type: "bool" }] },
   { type: "function", name: "verdictQualityScore", stateMutability: "view", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [{ type: "uint256" }] },
   { type: "function", name: "hasApplied", stateMutability: "view", inputs: [{ type: "bytes32" }, { type: "address" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "submissionAttempts", stateMutability: "view", inputs: [{ type: "bytes32" }, { type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "getJobSubmissions", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bytes32[]" }] },
+  { type: "function", name: "getSubmission", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "tuple", components: submissionTupleComponents }] },
   { type: "function", name: "getJobIds", stateMutability: "view", inputs: [], outputs: [{ type: "bytes32[]" }] },
   { type: "function", name: "getJob", stateMutability: "view", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [{ type: "tuple", components: jobTupleComponents }] },
   { type: "function", name: "getApplicants", stateMutability: "view", inputs: [{ name: "jobId", type: "bytes32" }], outputs: [{ type: "address[]" }] },

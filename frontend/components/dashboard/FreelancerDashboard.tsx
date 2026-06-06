@@ -115,7 +115,7 @@ export function FreelancerDashboard() {
     );
   }
 
-  const active = myJobs.filter((j) => j.status === "Active" || j.status === "UnderReview");
+  const active = myJobs.filter((j) => j.status === "Active" || j.status === "UnderReview" || j.status === "AwaitingApproval");
   const claimable = myJobs.filter((j) => j.status === "Passed");
   const retry = myJobs.filter((j) => j.status === "Failed" && j.retry_count < 3);
   const completed = myJobs.filter((j) => j.status === "Complete");

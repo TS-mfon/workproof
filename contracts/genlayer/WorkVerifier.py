@@ -14,6 +14,8 @@ ERROR_LLM = "[LLM_ERROR]"
 @dataclass
 class JobReview:
     job_id: str
+    submission_id: str
+    freelancer: str
     deliverable_url: str
     acceptance_criteria: str
     meets_criteria: bool
@@ -47,23 +49,56 @@ def _normalize_job_id(job_id) -> str:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Job id required")
         return "0x" + hex(job_id)[2:].rjust(64, "0")
     normalized = str(job_id)
+    if normalized.startswith("job:") or normalized.startswith("submission:"):
+        return normalized.split(":", 1)[1]
     if normalized.startswith("0x"):
         return "0x" + normalized[2:].rjust(64, "0")
     return normalized
 
 
+def _normalize_address(address) -> str:
+    if isinstance(address, int):
+        if address <= 0:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} Freelancer required")
+        return "0x" + hex(address)[2:].rjust(40, "0")
+    normalized = str(address)
+    if normalized.startswith("wallet:"):
+        return normalized.split(":", 1)[1].lower()
+    if len(normalized) == 0:
+        raise gl.vm.UserError(f"{ERROR_EXPECTED} Freelancer required")
+    if normalized.startswith("0x"):
+        return "0x" + normalized[2:].rjust(40, "0")
+    return normalized
+
+
 class WorkVerifier(gl.Contract):
     reviews: TreeMap[str, JobReview]
+    best_by_job_freelancer: TreeMap[str, str]
+    submission_order: DynArray[str]
     owner: Address
 
     def __init__(self) -> None:
         self.owner = gl.message.sender_address
 
     @gl.public.write
-    def verify_work(self, job_id: str, deliverable_url: str, acceptance_criteria: str, retry_count: int) -> None:
+    def verify_submission(
+        self,
+        job_id: str,
+        submission_id: str,
+        freelancer: str,
+        deliverable_url: str,
+        acceptance_criteria: str,
+        attempt: int,
+    ) -> None:
         normalized_job_id = _normalize_job_id(job_id)
+        normalized_submission_id = _normalize_job_id(submission_id)
+        normalized_freelancer = _normalize_address(freelancer)
         if len(normalized_job_id) == 0:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Job id required")
+        if len(normalized_submission_id) == 0:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} Submission id required")
+        if normalized_submission_id in self.reviews:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} Submission already reviewed")
         if len(deliverable_url) == 0:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Deliverable URL required")
         if len(acceptance_criteria) == 0:
@@ -85,7 +120,7 @@ class WorkVerifier(gl.Contract):
             result = gl.nondet.exec_prompt(
                 f"""
 You are an expert technical reviewer for a decentralized freelancing platform.
-Your verdict is FINAL and triggers automatic smart contract payment or refund.
+Your verdict ranks submitted work for the client. Only the client can approve the final payout.
 Be strict but fair. Read the work carefully before deciding.
 
 CLIENT'S ACCEPTANCE CRITERIA:
@@ -94,7 +129,7 @@ CLIENT'S ACCEPTANCE CRITERIA:
 SUBMITTED WORK CONTENT (from URL: {deliverable_url}):
 {content}
 
-This is attempt number {retry_count + 1}.
+This is attempt number {attempt}.
 
 Evaluate whether the submitted work FULLY meets ALL acceptance criteria.
 A partial pass is NOT sufficient; every criterion must be met.
@@ -167,27 +202,43 @@ Return JSON only, no other text:
 
         result = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
-        self.reviews[normalized_job_id] = JobReview(
+        self.reviews[normalized_submission_id] = JobReview(
             job_id=normalized_job_id,
+            submission_id=normalized_submission_id,
+            freelancer=normalized_freelancer,
             deliverable_url=deliverable_url,
             acceptance_criteria=acceptance_criteria,
             meets_criteria=result["meets_criteria"],
             quality_score=u256(result["quality_score"]),
-            retry_count=u256(retry_count),
+            retry_count=u256(attempt - 1 if attempt > 0 else 0),
             issues=result["issues"],
             ai_summary=result["summary"],
             verdict_emitted=False,
             reviewed_at="reviewed",
         )
+        self.submission_order.append(normalized_submission_id)
+        best_key = normalized_job_id + ":" + normalized_freelancer.lower()
+        if best_key not in self.best_by_job_freelancer:
+            self.best_by_job_freelancer[best_key] = normalized_submission_id
+        else:
+            current_id = self.best_by_job_freelancer[best_key]
+            current = self.reviews[current_id]
+            if result["meets_criteria"] and (
+                (not current.meets_criteria) or result["quality_score"] > int(current.quality_score)
+            ):
+                self.best_by_job_freelancer[best_key] = normalized_submission_id
 
     @gl.public.view
-    def get_verdict(self, job_id: str) -> dict:
-        normalized_job_id = _normalize_job_id(job_id)
-        if normalized_job_id not in self.reviews:
+    def get_submission_verdict(self, submission_id: str) -> dict:
+        normalized_submission_id = _normalize_job_id(submission_id)
+        if normalized_submission_id not in self.reviews:
             return {"ready": False}
-        review = self.reviews[normalized_job_id]
+        review = self.reviews[normalized_submission_id]
         return {
             "ready": True,
+            "job_id": review.job_id,
+            "submission_id": review.submission_id,
+            "freelancer": review.freelancer,
             "meets_criteria": review.meets_criteria,
             "quality_score": int(review.quality_score),
             "issues": review.issues,
@@ -196,21 +247,40 @@ Return JSON only, no other text:
             "verdict_emitted": review.verdict_emitted,
         }
 
-    @gl.public.write
-    def mark_verdict_emitted(self, job_id: str) -> None:
+    @gl.public.view
+    def get_best_submission(self, job_id: str) -> dict:
         normalized_job_id = _normalize_job_id(job_id)
-        if normalized_job_id not in self.reviews:
-            raise gl.vm.UserError(f"{ERROR_EXPECTED} Job not found")
-        review = self.reviews[normalized_job_id]
-        self.reviews[normalized_job_id] = JobReview(
-            job_id=review.job_id,
-            deliverable_url=review.deliverable_url,
-            acceptance_criteria=review.acceptance_criteria,
-            meets_criteria=review.meets_criteria,
-            quality_score=review.quality_score,
-            retry_count=review.retry_count,
-            issues=review.issues,
-            ai_summary=review.ai_summary,
-            verdict_emitted=True,
-            reviewed_at=review.reviewed_at,
-        )
+        best_id = ""
+        best_score = -1
+        for submission_id in self.submission_order:
+            review = self.reviews[submission_id]
+            if review.job_id == normalized_job_id and review.meets_criteria:
+                score = int(review.quality_score)
+                if score > best_score:
+                    best_score = score
+                    best_id = submission_id
+        if len(best_id) == 0:
+            return {"ready": False}
+        review = self.reviews[best_id]
+        return {
+            "ready": True,
+            "submission_id": review.submission_id,
+            "freelancer": review.freelancer,
+            "quality_score": int(review.quality_score),
+            "summary": review.ai_summary,
+        }
+
+    @gl.public.view
+    def get_rankings(self, job_id: str) -> list:
+        normalized_job_id = _normalize_job_id(job_id)
+        result = []
+        for submission_id in self.submission_order:
+            review = self.reviews[submission_id]
+            if review.job_id == normalized_job_id and review.meets_criteria:
+                result.append({
+                    "submission_id": review.submission_id,
+                    "freelancer": review.freelancer,
+                    "quality_score": int(review.quality_score),
+                    "summary": review.ai_summary,
+                })
+        return result

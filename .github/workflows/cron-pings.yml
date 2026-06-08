@@ -1,0 +1,47 @@
+name: cron pings
+
+on:
+  schedule:
+    # Hits poll-genlayer + ingest-submissions every ~5 minutes (GitHub Actions
+    # cron is best-effort and can lag; tighter schedules don't help).
+    - cron: "*/5 * * * *"
+    # Deadline checks every 15 minutes
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping-fast:
+    if: github.event.schedule == '*/5 * * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: poll-genlayer
+        env:
+          BASE_URL: ${{ secrets.VERCEL_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$BASE_URL/api/cron/poll-genlayer" | tee /tmp/poll.json
+          jq -e '.ok == true' /tmp/poll.json
+      - name: ingest-submissions
+        env:
+          BASE_URL: ${{ secrets.VERCEL_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$BASE_URL/api/cron/ingest-submissions" | tee /tmp/ingest.json
+          jq -e '.ok == true' /tmp/ingest.json
+
+  ping-slow:
+    if: github.event.schedule == '*/15 * * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: check-deadlines
+        env:
+          BASE_URL: ${{ secrets.VERCEL_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$BASE_URL/api/cron/check-deadlines" | tee /tmp/dead.json
+          jq -e '.ok == true' /tmp/dead.json

@@ -33,18 +33,21 @@ export function startArbitrumListener() {
           metadata: { deliverableUrl },
           tx_hash: log.transactionHash
         });
-        await triggerVerify({
-          jobId,
-          deliverableUrl,
-          acceptanceCriteria: job.acceptanceCriteria,
-          retryCount: Number(job.retryCount)
-        });
-        await logActivity({
-          event_type: "retry_attempt",
-          job_id: jobId,
-          actor_wallet: freelancer,
-          metadata: { message: "Pending GenLayer verification" }
-        });
+        // Production GenLayer signing is the Vercel cron route, not this listener.
+        // We deliberately do NOT call triggerVerify here — it shells out to the
+        // local `genlayer` CLI with whatever key is configured locally and is the
+        // path the stuck non-oracle txs came from.
+        void job;
+        console.log(
+          JSON.stringify({
+            ts: new Date().toISOString(),
+            component: "oracle/arbitrum-listener",
+            level: "info",
+            msg: "skip-trigger-verify",
+            jobId,
+            note: "Vercel cron /api/cron/ingest-submissions signs via the oracle wallet"
+          })
+        );
       }
     }
   });

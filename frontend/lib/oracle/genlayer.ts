@@ -60,6 +60,26 @@ export async function signVerifySubmission(input: {
     return { ok: false, code: "oracle_misconfigured", error: "GENLAYER_CONTRACT missing" };
   }
 
+  // Defence-in-depth: refuse to sign if the derived signer or target contract
+  // drifts from what is configured at the env-var level. This makes it
+  // impossible for a stale key or stale address to slip through.
+  const declaredOracle = process.env.ORACLE_WALLET?.toLowerCase();
+  if (declaredOracle && oracle.address.toLowerCase() !== declaredOracle) {
+    return {
+      ok: false,
+      code: "oracle_misconfigured",
+      error: `signer ${oracle.address} != ORACLE_WALLET ${process.env.ORACLE_WALLET}`
+    };
+  }
+  const declaredContract = process.env.NEXT_PUBLIC_GENLAYER_CONTRACT?.toLowerCase();
+  if (declaredContract && contract.toLowerCase() !== declaredContract) {
+    return {
+      ok: false,
+      code: "oracle_misconfigured",
+      error: `contract ${contract} != NEXT_PUBLIC_GENLAYER_CONTRACT ${process.env.NEXT_PUBLIC_GENLAYER_CONTRACT}`
+    };
+  }
+
   let account, client;
   try {
     account = createAccount(oracle.key);
@@ -86,6 +106,19 @@ export async function signVerifySubmission(input: {
       WRITE_TIMEOUT_MS,
       "writeContract"
     )) as string;
+    console.log(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        component: "oracle/genlayer",
+        level: "info",
+        msg: "signed",
+        signer: oracle.address,
+        contract,
+        glTxId,
+        submissionId: input.submissionId,
+        attempt: input.attempt
+      })
+    );
     return { ok: true, glTxId, oracleAddress: oracle.address };
   } catch (e) {
     const message = ((e as Error)?.message ?? "GenLayer write failed").toString();

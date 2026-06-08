@@ -29,6 +29,28 @@ function genlayer(args: string[]) {
   return execFileSync("genlayer", args, { encoding: "utf8", timeout: 10 * 60 * 1000 });
 }
 
+const apiBase = process.env.API_BASE_URL ?? "http://localhost:3000";
+
+async function triggerOracleSign(payload: {
+  jobId: Hex;
+  submissionId: Hex;
+  freelancer: `0x${string}`;
+  deliverableUrl: string;
+  criteria: string;
+  attempt: number;
+}) {
+  const res = await fetch(`${apiBase}/api/genlayer-trigger`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.ok) {
+    throw new Error(`oracle ${res.status} ${body.code ?? ""} ${body.error ?? ""}`);
+  }
+  return body as { glTxId: string; oracleAddress: string; alreadySigned?: boolean };
+}
+
 async function main() {
   if (process.argv[2] === "finalize") {
     const jobId = process.argv[3] as Hex;
@@ -52,7 +74,15 @@ async function main() {
   const submit = await wallet.writeContract({ address, abi, functionName: "submitWork", args: [jobId, deliverable] });
   const submissionId = eventArg(await publicClient.waitForTransactionReceipt({ hash: submit }), "SubmissionRecorded", "submissionId");
 
-  genlayer(["write", verifier, "verify_submission", "--args", `job:${jobId}`, `submission:${submissionId}`, `wallet:${account.address}`, deliverable, criteria, "1"]);
+  const signed = await triggerOracleSign({
+    jobId,
+    submissionId,
+    freelancer: account.address,
+    deliverableUrl: deliverable,
+    criteria,
+    attempt: 1
+  });
+  console.log(`oracle signed via API base=${apiBase} gl=${signed.glTxId} oracle=${signed.oracleAddress}${signed.alreadySigned ? " (replay)" : ""}`);
   let verdict = "";
   for (let i = 0; i < 12; i++) {
     verdict = genlayer(["call", verifier, "get_submission_verdict", "--args", `submission:${submissionId}`]);

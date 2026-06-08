@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ipFromRequest, rateLimit } from "@/lib/rate-limit";
 import { signVerifySubmission, writeGenLayerAudit } from "@/lib/oracle/genlayer";
+import { serviceSupabase } from "@/lib/oracle/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +61,31 @@ export async function POST(request: NextRequest) {
   const attemptNum = Number(attempt ?? 0);
   if (!Number.isInteger(attemptNum) || attemptNum < 0 || attemptNum > 50) {
     return err("invalid_input", "Invalid attempt value", 400);
+  }
+
+  // Pre-flight idempotency: if this (submissionId, attempt) was already signed,
+  // return the prior glTxId without re-signing. The audit table has
+  // `unique (submission_id, attempt)` so even a concurrent race ends up here.
+  try {
+    const { data: existing } = await serviceSupabase()
+      .from("genlayer_submissions")
+      .select("gl_tx_id, oracle_address, signed_at")
+      .eq("submission_id", submissionId)
+      .eq("attempt", attemptNum)
+      .maybeSingle();
+    if (existing) {
+      return NextResponse.json({
+        ok: true,
+        alreadySigned: true,
+        glTxId: existing.gl_tx_id,
+        oracleAddress: existing.oracle_address,
+        signedAt: existing.signed_at
+      });
+    }
+  } catch (e) {
+    // If the audit lookup fails, we proceed but log it — failing closed here
+    // would block legitimate first-time signs when Supabase is briefly down.
+    console.warn("[genlayer-trigger] preflight lookup failed:", (e as Error).message);
   }
 
   const result = await signVerifySubmission({

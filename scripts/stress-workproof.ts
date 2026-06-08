@@ -319,26 +319,13 @@ function runGenLayer(args: string[]) {
   return output;
 }
 
-async function verifyTenWithGenLayer(limit = 10) {
-  const address = requireEnv(contractAddress, "WORKPROOF_CONTRACT") as Hex;
-  const verifier = requireEnv(genLayerContract, "GENLAYER_CONTRACT");
-  const ids = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJobIds" });
-  const selected = [...ids].slice(0, 30).slice(0, limit);
-  for (const jobId of selected) {
-    const job = await publicClient.readContract({ address, abi: workProofAbi, functionName: "getJob", args: [jobId] });
-    if (!job.deliverableUrl) throw new Error(`Job ${jobId} has no deliverableUrl`);
-    console.log(`verifying ${jobId} with GenLayer`);
-    runGenLayer([
-      "write",
-      verifier,
-      "verify_work",
-      "--args",
-      jobId,
-      job.deliverableUrl,
-      job.acceptanceCriteria,
-      String(job.retryCount)
-    ]);
-  }
+async function verifyTenWithGenLayer(_limit = 10) {
+  // Disabled — non-oracle path that signed with the deployer key.
+  // For an oracle-signed e2e flow use `scripts/e2e-oracle-submit.ts`,
+  // which POSTs to /api/genlayer-trigger and signs with ORACLE_PRIVATE_KEY.
+  throw new Error(
+    "verifyTenWithGenLayer is disabled: use scripts/e2e-oracle-submit.ts (signs via /api/genlayer-trigger with the oracle wallet)."
+  );
 }
 
 async function pollTenGenLayer(limit = 10) {

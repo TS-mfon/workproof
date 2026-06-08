@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { parseEventLogs } from "viem";
 import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi";
 import { arbitrumSepolia } from "viem/chains";
@@ -81,6 +81,17 @@ export function SubmitDeliverableModal({
       return false;
     }
   }, [url]);
+
+  // Prevent accidental reloads or tab-closes while the flow is mid-flight.
+  useEffect(() => {
+    if (stage !== "arbitrum" && stage !== "genlayer") return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = ""; // chromium requires this
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [stage]);
 
   if (!open) return null;
 
@@ -164,7 +175,7 @@ export function SubmitDeliverableModal({
         return;
       }
 
-      let payload: { ok?: boolean; code?: string; error?: string; glTxId?: string } = {};
+      let payload: { ok?: boolean; code?: string; error?: string; glTxId?: string; alreadySigned?: boolean } = {};
       try { payload = await res.json(); } catch { /* swallow */ }
 
       if (!res.ok || !payload.ok) {
@@ -178,10 +189,11 @@ export function SubmitDeliverableModal({
       setGlTxId(payload.glTxId ?? null);
       setStage("done");
       onSubmitted?.();
+      const delay = payload.alreadySigned ? 1200 : 1500;
       setTimeout(() => {
         onClose();
         location.reload();
-      }, 1500);
+      }, delay);
     } catch (error) {
       setUrlError(error instanceof Error
         ? `${error.message} Your Arbitrum submission may be saved — check the job page.`
@@ -272,6 +284,12 @@ export function SubmitDeliverableModal({
             {buttonLabel}
           </button>
         </div>
+
+        {process.env.NEXT_PUBLIC_BUILD_SHA && (
+          <p className="text-xs text-muted" style={{ opacity: 0.55, textAlign: "right" }}>
+            build: <code>{process.env.NEXT_PUBLIC_BUILD_SHA.slice(0, 7)}</code>
+          </p>
+        )}
       </form>
     </div>
   );

@@ -1,0 +1,7 @@
+{
+  "crons": [
+    { "path": "/api/cron/ingest-submissions", "schedule": "* * * * *" },
+    { "path": "/api/cron/poll-genlayer", "schedule": "* * * * *" },
+    { "path": "/api/cron/check-deadlines", "schedule": "*/5 * * * *" }
+  ]
+}

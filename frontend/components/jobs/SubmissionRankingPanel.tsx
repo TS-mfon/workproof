@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAccount, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
-import { readSubmissionVerdict, verifySubmission } from "@/lib/genlayer";
+import { readSubmissionVerdict } from "@/lib/genlayer";
 import { useTx } from "@/components/shared/TxToast";
 import { AddressDisplay } from "@/components/shared/AddressDisplay";
 import type { Job } from "@/lib/types";
@@ -78,14 +78,22 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
     setBusy(submission.submissionId);
     setError("");
     try {
-      await verifySubmission({
-        address,
-        jobId: job.job_id_onchain,
-        submissionId: submission.submissionId,
-        deliverableUrl: submission.deliverableUrl,
-        criteria: job.acceptance_criteria,
-        attempt: Number(submission.attempt)
+      const res = await fetch("/api/genlayer-trigger", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jobId: job.job_id_onchain,
+          submissionId: submission.submissionId,
+          freelancer: address,
+          deliverableUrl: submission.deliverableUrl,
+          criteria: job.acceptance_criteria,
+          attempt: Number(submission.attempt)
+        })
       });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error ?? `AI reviewer rejected the request (${res.status}).`);
+      }
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "GenLayer review failed.");

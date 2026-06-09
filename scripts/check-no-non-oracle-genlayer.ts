@@ -9,7 +9,9 @@ const ROOT = resolve(__dirname, "..");
 
 const ALLOWED = new Set<string>([
   // The single legitimate writeContract verify_submission site:
-  "frontend/lib/oracle/genlayer.ts"
+  "frontend/lib/oracle/genlayer.ts",
+  // The grep gate itself, which contains the regex literals it scans for:
+  "scripts/check-no-non-oracle-genlayer.ts"
 ]);
 
 const BAD_PATTERNS: RegExp[] = [

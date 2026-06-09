@@ -6,6 +6,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { Providers } from "@/components/shared/Providers";
+import { SwKillerAndBuildChip } from "@/components/shared/SwKillerAndBuildChip";
 
 const hanken = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken", weight: ["400", "500", "600", "700", "800"] });
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", weight: ["400", "500", "600", "700"] });
@@ -37,6 +38,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <main>{children}</main>
           <Footer />
           <MobileBottomNav />
+          <SwKillerAndBuildChip />
         </Providers>
       </body>
     </html>

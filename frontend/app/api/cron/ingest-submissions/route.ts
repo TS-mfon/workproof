@@ -3,7 +3,7 @@ import { parseAbiItem } from "viem";
 import { authorizeCron, logJson } from "@/lib/oracle/cronAuth";
 import { arbitrumPublicClient, workProofAddress } from "@/lib/oracle/chain";
 import { readCursor, writeCursor } from "@/lib/oracle/cursor";
-import { logActivity, updateJob } from "@/lib/oracle/supabase";
+import { logActivity, serviceSupabase, updateJob } from "@/lib/oracle/supabase";
 import { signVerifySubmission, writeGenLayerAudit } from "@/lib/oracle/genlayer";
 
 export const runtime = "nodejs";
@@ -108,6 +108,30 @@ export async function GET(request: NextRequest) {
           args: [jobId]
         });
         const criteria = (job as { acceptanceCriteria: string }).acceptanceCriteria;
+
+        // Pre-flight idempotency: if a prior request already signed this
+        // (submissionId, attempt), don't re-sign — count as already triggered.
+        try {
+          const { data: existing } = await serviceSupabase()
+            .from("genlayer_submissions")
+            .select("gl_tx_id")
+            .eq("submission_id", submissionId)
+            .eq("attempt", attempt)
+            .maybeSingle();
+          if (existing) {
+            triggered++;
+            logJson("cron/ingest-submissions", "info", "already-signed", {
+              jobId,
+              submissionId,
+              glTxId: existing.gl_tx_id
+            });
+            continue;
+          }
+        } catch (e) {
+          logJson("cron/ingest-submissions", "warn", "preflight lookup failed", {
+            error: (e as Error).message
+          });
+        }
 
         // Sign GenLayer verify_submission with the oracle wallet
         const signed = await signVerifySubmission({

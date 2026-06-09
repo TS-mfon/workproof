@@ -74,6 +74,15 @@ const ARCHETYPES: Archetype[] = [
     deliverable: "https://arbworkproof.vercel.app/api/stress/deliverable/1",
     expectPass: true,
     attempts: 2
+  },
+  {
+    name: "content-writing-gist",
+    domain: "content",
+    criteria:
+      "Deliverable must be a public Gist containing a 400-word article about freelance escrow on Arbitrum. Must mention WorkProof, GenLayer, and AI verification at least once.",
+    deliverable:
+      "https://gist.githubusercontent.com/TS-mfon/47ac0822d06c833cc60e4ad77f8cf28c/raw",
+    expectPass: true
   }
 ];
 

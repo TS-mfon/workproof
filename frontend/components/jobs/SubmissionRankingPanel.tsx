@@ -35,6 +35,7 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
   const { run } = useTx();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
+  const [signedAt, setSignedAt] = useState<Record<string, string>>({}); // submissionId -> ISO signed_at if already signed
   const [busy, setBusy] = useState<string>("");
   const [error, setError] = useState("");
 
@@ -61,6 +62,22 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
       catch { return [submission.submissionId, { ready: false }] as const; }
     }));
     setVerdicts(Object.fromEntries(results));
+
+    // Idempotency check: if the oracle has already signed verify_submission for
+    // (submissionId, attempt), surface that so the user sees "Awaiting validators"
+    // and the retry button is hidden.
+    const sigs = await Promise.all(next.map(async (submission) => {
+      try {
+        const r = await fetch(
+          `/api/genlayer-submissions/lookup?submissionId=${submission.submissionId}&attempt=${Number(submission.attempt)}`,
+          { cache: "no-store" }
+        );
+        const j = await r.json().catch(() => ({}));
+        if (j?.found && j.signedAt) return [submission.submissionId, j.signedAt as string] as const;
+      } catch { /* swallow */ }
+      return [submission.submissionId, ""] as const;
+    }));
+    setSignedAt(Object.fromEntries(sigs.filter(([, v]) => v)));
   }
 
   useEffect(() => { refresh().catch(() => {}); }, [job.job_id_onchain, publicClient]);
@@ -147,9 +164,16 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
             {verdict.summary && <p className="text-sm">{String(verdict.summary)}</p>}
             {verdict.issues && <p className="text-xs" style={{ color: "var(--danger)" }}>{String(verdict.issues)}</p>}
             <div className="flex gap-2 flex-wrap">
-              {own && !verdict.ready && <button className="btn tiny" disabled={busy === submission.submissionId} onClick={() => completeReview(submission)}>
-                {busy === submission.submissionId ? "Verifying…" : "Complete GenLayer review"}
-              </button>}
+              {own && !verdict.ready && signedAt[submission.submissionId] && (
+                <span className="text-xs text-muted">
+                  Awaiting validators — oracle signed at {new Date(signedAt[submission.submissionId]).toLocaleString()}.
+                </span>
+              )}
+              {own && !verdict.ready && !signedAt[submission.submissionId] && (
+                <button className="btn tiny" disabled={busy === submission.submissionId} onClick={() => completeReview(submission)}>
+                  {busy === submission.submissionId ? "Verifying…" : "Complete GenLayer review"}
+                </button>
+              )}
               {canApprove && <button className="btn success tiny" disabled={isPending} onClick={() => approve(submission, verdict)}>
                 Approve winner
               </button>}

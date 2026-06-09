@@ -6,16 +6,9 @@ import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi
 import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
+import { classifyHost } from "@/lib/genlayer-reachability";
 
 const SUPPORTED_DOMAINS = ["content", "frontend", "design", "marketing", "research", "smart-contracts"];
-
-const UNVERIFIABLE_HOSTS = [
-  "twitter.com", "x.com", "instagram.com", "facebook.com", "linkedin.com",
-  "tiktok.com", "reddit.com", "youtube.com", "pinterest.com",
-  "app.slack.com", "teams.microsoft.com", "discord.com", "discord.gg",
-  "drive.google.com", "docs.google.com", "calendly.com", "zoom.us",
-  "notion.so", "notion.com", "app.notion.com", "www.notion.com"
-];
 
 type Stage = "idle" | "arbitrum" | "genlayer" | "done";
 
@@ -60,18 +53,20 @@ export function SubmitDeliverableModal({
 
   const domainSupported = domain ? SUPPORTED_DOMAINS.includes(domain) : true;
 
+  const hostVerdict = useMemo(() => classifyHost(url), [url]);
+  // Hard block only the confirmed-blocked list. Soft-warn everything else.
   const verifiableMessage = useMemo(() => {
-    try {
-      const u = new URL(url);
-      const host = u.hostname.replace(/^www\./, "");
-      for (const blocked of UNVERIFIABLE_HOSTS) {
-        if (host.endsWith(blocked)) return `GenLayer validators cannot access ${host} — it requires login or blocks automated fetches. Use a public Gist, GitHub Pages, or a deployed website.`;
-      }
-      return null;
-    } catch {
-      return null;
+    if (!hostVerdict) return null;
+    if (hostVerdict.status === "blocked") {
+      return hostVerdict.alt
+        ? `GenLayer validators cannot reach ${hostVerdict.host}. Try a deliverable on ${hostVerdict.alt} instead.`
+        : `GenLayer validators cannot reach ${hostVerdict.host}. Use a different public host.`;
     }
-  }, [url]);
+    return null;
+  }, [hostVerdict]);
+  const softWarn = hostVerdict?.status === "unknown"
+    ? `${hostVerdict.host} is not on the validators' confirmed-accessible list — verification may fail or be inconclusive.`
+    : null;
 
   const isValidUrl = useMemo(() => {
     try {
@@ -92,6 +87,19 @@ export function SubmitDeliverableModal({
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [stage]);
+
+  // Always release the in-flight lock when the modal unmounts.
+  useEffect(() => () => { inFlight.current = false; }, []);
+
+  // If the wallet disconnects mid-flight, surface a clear error instead of
+  // hanging on a stale `address` value.
+  useEffect(() => {
+    if ((stage === "arbitrum" || stage === "genlayer") && !address) {
+      setUrlError("Wallet disconnected mid-flight. Reconnect and retry from the job page.");
+      setStage("idle");
+      inFlight.current = false;
+    }
+  }, [address, stage]);
 
   if (!open) return null;
 
@@ -157,9 +165,9 @@ export function SubmitDeliverableModal({
       setStage("genlayer");
       let res: Response;
       try {
-        res = await fetch("/api/genlayer-trigger", {
+        res = await fetch(`/api/genlayer-trigger?v=${encodeURIComponent(process.env.NEXT_PUBLIC_BUILD_SHA ?? "dev")}`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "cache-control": "no-store" },
           body: JSON.stringify({
             jobId,
             submissionId: recorded.submissionId,
@@ -264,6 +272,18 @@ export function SubmitDeliverableModal({
           <div style={{ background: "var(--warn-soft)", border: "1px solid #FDE68A", borderRadius: 10, padding: 12, fontSize: 13, color: "#92400E" }}>
             ⚠ {verifiableMessage}
           </div>
+        )}
+
+        {!verifiableMessage && softWarn && (
+          <div style={{ background: "rgba(250, 204, 21, 0.12)", border: "1px solid #FCD34D", borderRadius: 10, padding: 10, fontSize: 12, color: "#92400E" }}>
+            ⚠ {softWarn}
+          </div>
+        )}
+
+        {!verifiableMessage && hostVerdict?.status === "accessible" && (
+          <p className="text-xs" style={{ color: "var(--success, #059669)" }}>
+            ✓ {hostVerdict.host} is on the validators' confirmed-accessible list.
+          </p>
         )}
 
         {stage === "arbitrum" && <p className="text-xs text-muted">Step 1 of 2 · Recording your submission on Arbitrum…</p>}

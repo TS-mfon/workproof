@@ -1,188 +1,149 @@
 # WorkProof
 
-WorkProof is an autonomous hiring escrow protocol for Arbitrum Sepolia and GenLayer Studio. Clients post jobs and lock ETH, freelancers submit deliverables, GenLayer verifies work against acceptance criteria, and the oracle relays verdicts back to the escrow contract for claimable payment or refund.
+Autonomous freelance escrow on Arbitrum Sepolia. Clients post jobs with locked ETH; freelancers submit a public deliverable URL; a GenLayer intelligent contract reviews the work and scores it; the oracle relays the verdict back on-chain so passing freelancers can claim payment.
 
-## Stack
+The dApp runs on **Vercel only** (Next.js + cron via GitHub Actions). There is no standalone backend.
 
-- Solidity 0.8.24 with Hardhat
-- GenLayer intelligent contract in Python
-- Oracle service in Node.js, TypeScript, viem, Supabase
-- Next.js 14+ App Router frontend with wagmi, viem, RainbowKit, Tailwind
-- Supabase Postgres and RLS
+## Architecture
 
-## Repository Layout
+```
+ Browser (wagmi)               Vercel (Next.js)                  Supabase
+ ──────────────                ────────────────                  ────────
+ user wallet  ──Arbitrum sig──▶ /api/genlayer-trigger ──sign───▶  audit row
+                                signs verify_submission           genlayer_submissions
+                                with ORACLE_PRIVATE_KEY            (unique submission_id+attempt)
+                                       │
+                                       ▼
+                                 GenLayer studionet
+                                 WorkVerifier.py
 
-```text
-contracts/arbitrum     WorkProof.sol, interfaces, deploy script
-contracts/genlayer     WorkVerifier.py
-oracle                 Autonomous bridge/listener service
-frontend               Next.js dapp and API routes
-supabase/migrations    Postgres schema and RLS
-test                   Hardhat contract tests
+  GitHub Actions cron ────▶ /api/cron/ingest-submissions
+                            /api/cron/poll-genlayer
+                            /api/cron/check-deadlines
+                                       │
+                                       ▼
+                                 Arbitrum Sepolia
+                                 WorkProof.sol  ────▶ receiveVerdict / autoRefund
 ```
 
-## Setup
+### Signing roles
 
-```bash
+| Wallet | Signs |
+|---|---|
+| **User wallet** (browser) | Arbitrum `submitWork` only (one signature, period) |
+| **Oracle wallet** (`ORACLE_PRIVATE_KEY` on Vercel) | GenLayer `verify_submission` AND Arbitrum `receiveVerdict` / `autoRefund` |
+| **Deployer wallet** | Contract deploys, seed jobs, oracle wallet funding |
+
+`DEPLOYER_PRIVATE_KEY` is **never** used for runtime signing. The `/api/genlayer-trigger` route refuses to sign unless the derived signer equals the configured `ORACLE_WALLET` and the target contract equals `NEXT_PUBLIC_GENLAYER_CONTRACT`.
+
+## Submit flow (user POV)
+
+1. Freelancer pastes a public URL in the modal.
+2. Clicks **Submit & verify**.
+3. Wallet pops up **once** for the Arbitrum `submitWork` tx.
+4. Status text walks through: `Recording on Arbitrum…` → `Sending to AI reviewer…` → `Submitted ✓`.
+5. The oracle wallet handles the GenLayer signature server-side. The freelancer never sees a GenLayer prompt.
+
+Re-clicking is impossible:
+- A synchronous `useRef` lock blocks double-clicks before any await.
+- A `beforeunload` listener blocks accidental tab reloads mid-flight.
+- The server returns `alreadySigned: true` if `(submissionId, attempt)` is already in `genlayer_submissions`.
+- The "Complete GenLayer review" retry button on the ranking panel hides itself if the lookup shows the oracle already signed.
+
+## Repo layout
+
+```
+contracts/arbitrum/        Solidity WorkProof.sol + Hardhat deploy
+contracts/genlayer/        Python WorkVerifier.py (intelligent contract)
+frontend/                  Next.js App Router dApp
+  app/api/genlayer-trigger     Oracle signs verify_submission
+  app/api/genlayer-submissions/lookup  Idempotency lookup
+  app/api/cron/ingest-submissions      Cron: poll SubmissionRecorded logs
+  app/api/cron/poll-genlayer            Cron: poll GenLayer verdicts
+  app/api/cron/check-deadlines          Cron: refund expired jobs
+  lib/oracle/                Single source of GenLayer signing
+oracle/                   Legacy standalone Node service (NOT deployed; see oracle/README.md)
+scripts/
+  generate-oracle-wallet.ts  Mint a fresh oracle wallet
+  inspect-genlayer-tx.ts     Decode any GenLayer tx hash
+  reset-and-seed-30.ts       One-shot reset + redeploy + seed 30 jobs
+  e2e-oracle-submit.ts       Six-archetype e2e against deployed contracts
+  check-no-non-oracle-genlayer.ts  CI gate: any verify_submission write outside the approved file fails the build
+supabase/migrations/      DB schema; 004 + 005 are oracle-related
+.github/workflows/cron-pings.yml   GitHub Actions schedules the cron routes
+```
+
+## Env vars
+
+| Var | Where | Purpose |
+|---|---|---|
+| `DEPLOYER_PRIVATE_KEY` | Local | Contract deploys + seeds + oracle funding only |
+| `ORACLE_PRIVATE_KEY` | Vercel + local | Sole runtime signer (GenLayer + Arbitrum verdict relay) |
+| `ORACLE_WALLET` | Vercel + local | Address derived from the key, used for guard checks |
+| `CRON_SECRET` | Vercel + GitHub Secrets | Bearer token on cron endpoints |
+| `WORKPROOF_CONTRACT` / `NEXT_PUBLIC_WORKPROOF_CONTRACT` | Vercel + local | Arbitrum contract address |
+| `GENLAYER_CONTRACT` / `NEXT_PUBLIC_GENLAYER_CONTRACT` | Vercel + local | GenLayer studionet verifier |
+| `GENLAYER_STUDIO_RPC` | Vercel + local | `https://studio.genlayer.com/api` |
+| `ARBITRUM_SEPOLIA_RPC` | Vercel + local | `https://sepolia-rollup.arbitrum.io/rpc` |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` | Vercel + local | Service-role Supabase |
+| `SUPABASE_ACCESS_TOKEN` | Local | Supabase Management API for migrations + truncates |
+| `VERCEL_TOKEN` | Local | Vercel REST API for env rotation |
+| `GITHUB_TOKEN` | Local | Repo push + GH Actions secret rotation |
+| `NEXT_PUBLIC_BUILD_SHA` | Vercel | Build commit; shown as a corner chip on every page |
+
+## Local dev
+
+```sh
 npm install
-cp .env.example .env
-cp oracle/.env.example oracle/.env
-cp frontend/.env.example frontend/.env.local
-```
-
-Required deployment values:
-
-- `DEPLOYER_PRIVATE_KEY`
-- `ORACLE_WALLET`
-- `ARBITRUM_SEPOLIA_RPC`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_KEY`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `NEXT_PUBLIC_WORKPROOF_CONTRACT`
-- `GENLAYER_STUDIO_RPC`
-- `GENLAYER_CONTRACT`
-- `ORACLE_PRIVATE_KEY`
-- `NEXT_PUBLIC_ADMIN_WALLETS`
-
-## Contracts
-
-```bash
-npm run compile
-npm run test
-npm run deploy:arbitrum-sepolia
-```
-
-After deployment, copy the printed `WorkProof` address into the oracle and frontend env files.
-
-Current Arbitrum Sepolia deployment:
-
-- `WorkProof v2`: `0xA6E94A8e04fbE69aE485E494012a7f2b615979ea`
-- Initial oracle/admin deployer: `0xEd9EDd8586b20524CafA4F568413C504C9B03172`
-- Deployment metadata: `deployments/arbitrum-sepolia.json`
-- Previous v1 (legacy data, 130 stress jobs): `0x6f20e728a36c710ba7ECe9b3378Cb14A69eE0b1B`
-
-## GenLayer
-
-```bash
-genvm-lint check contracts/genlayer/WorkVerifier.py
-genlayer network set studionet
-genlayer deploy --contract contracts/genlayer/WorkVerifier.py
-```
-
-Current GenLayer Studionet deployment:
-
-- `WorkVerifier`: `0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e`
-- Stress read check: first 10 submitted stress jobs returned `ready: true` from `get_verdict`.
-
-Copy the deployed GenLayer contract address into `GENLAYER_CONTRACT`.
-
-## Supabase
-
-Apply `supabase/migrations/001_workproof_schema.sql` to a fresh Supabase project. The service key is required by the oracle and Next.js API routes for append-only activity and automated job updates.
-
-Current Supabase status:
-
-- `/home/sudodave/buildenv/.env` contains `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`.
-- The supplied project currently has no `public.users` table, so the schema has not been applied yet.
-- The Supabase REST service role key cannot create/drop schemas through the Management API. A Supabase access token or direct Postgres connection string is required to wipe/create the database schema.
-- Until the schema exists, production UI falls back to real onchain WorkProof jobs and reputation reads instead of fake data.
-
-Fresh schema reset when a direct database URL is available:
-
-```bash
-SUPABASE_DB_URL=<postgres connection string> npm run supabase:reset
-npm run stress:sync-db
-```
-
-## Oracle
-
-```bash
-npm --workspace oracle run dev
-curl http://localhost:8787/health
-```
-
-The oracle watches `WorkSubmitted`, triggers GenLayer verification, polls verdicts every 30 seconds, calls `receiveVerdict`, and runs deadline refunds every 60 seconds.
-
-## Frontend
-
-```bash
 npm --workspace frontend run dev
-npm --workspace frontend run typecheck
-npm --workspace frontend run build
 ```
 
-The frontend renders only real Supabase/onchain state. Empty production state is shown as empty state UI instead of seeded fake cards.
+Open `http://localhost:3000`. The cron routes require `CRON_SECRET` to be set in `.env.local`; otherwise they return 401.
 
-Production deployment:
+## Reset + seed for a clean test run
 
-- GitHub: `https://github.com/TS-mfon/workproof`
-- Vercel: `https://arbworkproof.vercel.app`
-- Vercel project: `gen-daves-projects/arbworkproof`
+This refunds every open job on the old contract, sweeps stuck ETH to the deployer, redeploys `WorkProof` with the current oracle wallet as `initialOracle`, calls `addOracle` for redundancy, funds the oracle with 0.005 ETH, rotates `WORKPROOF_CONTRACT` everywhere, truncates Supabase tables, and posts 30 new content-writing jobs.
 
-## Current Verification Status
-
-- `npm run compile` passes.
-- `npm --workspace oracle run typecheck` passes.
-- `npm --workspace frontend run typecheck` passes.
-- `npm --workspace frontend run build` passes.
-- `genvm-lint check contracts/genlayer/WorkVerifier.py` passes AST lint but SDK validation currently fails while loading the remote SDK with `HTTP Error 404: Not Found`.
-- `genlayer call 0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e get_verdict --args <stress-job-id>` returned ready verdicts for the 10 submitted stress jobs.
-- `npm run test` currently fails in this environment with `Bus error (core dumped)` while starting the Hardhat test process.
-- Production Vercel URL returns `HTTP 200`.
-- Generated stress wallets were funded on Arbitrum Sepolia for the low-budget stress run.
-- Onchain stress run posted 100 escrow-backed jobs, submitted 10 jobs from 4 freelancer wallets, verified all 10 through GenLayer readiness, relayed successful verdicts, and claimed the 10 rewards.
-- A second content-marketplace run posted 30 additional writing-focused jobs with structured project briefs and detailed acceptance criteria, bringing the visible onchain feed to 130 jobs.
-- Live UI now displays stress jobs through the onchain fallback. Supabase-backed activity/claim table sync is pending a fresh schema, because the current database has no WorkProof tables.
-- The protocol no longer deploys `JuryRegistry`; GenLayer validators are the only work review layer.
-
-## Final Verification Checklist
-
-- Flow A: post job, accept application, submit work, GenLayer passes, claim reward
-- Flow B: submit work, GenLayer fails, retry, pass, claim reward
-- Flow C: deadline expires, oracle refunds client
-- Admin: wallet gate, pause job, force refund, oracle monitor
-- Leaderboard: reputation updates after completed jobs
-
-## Stress Test
-
-```bash
-npm run stress:wallets
-npm run stress:fund
-npm run stress:post30
-npm run stress:submit10
-npm run stress:verify10-genlayer
-npm run stress:poll10-genlayer
-npm run stress:complete10
-npm run stress:post70
-npm run stress:post-writing30
-npm run stress:sync-db
+```sh
+npx tsx scripts/reset-and-seed-30.ts --dry-run   # print plan, no changes
+npx tsx scripts/reset-and-seed-30.ts --apply     # do everything
 ```
 
-The stress scripts generate ignored local test wallets, fund them from the deployer, create escrow-backed jobs, submit public deliverables, and rely on the oracle plus GenLayer Studionet to resolve submitted jobs.
+After it finishes, `git push origin main` and Vercel auto-redeploys with the new contract address.
 
-Completed stress result:
+## Cron schedule
 
-- Generated 1 client wallet and 4 freelancer wallets.
-- Posted 30 initial escrow-backed jobs on Arbitrum Sepolia.
-- Submitted the first 10 jobs from the 4 freelancer wallets.
-- Verified all 10 submitted jobs to ready verdict state in GenLayer Studionet.
-- Relayed verdicts to `WorkProof.receiveVerdict` and claimed all 10 rewards.
-- Posted 70 additional escrow-backed jobs with varied deadlines, bringing the run to 100 total jobs.
-- Posted 30 additional writing-focused content jobs with professional briefs and strict acceptance criteria, bringing the current onchain job feed to 130 total jobs.
-- Confirmed the contract still tracks the 4 freelancer wallets after the stress run.
+| Endpoint | Schedule | Purpose |
+|---|---|---|
+| `/api/cron/ingest-submissions` | `*/5 * * * *` | Read `SubmissionRecorded` logs since cursor; sign GenLayer `verify_submission` for each via the oracle |
+| `/api/cron/poll-genlayer` | `*/5 * * * *` | Read `get_verdict` for `UnderReview` jobs; relay passing/failing verdicts to Arbitrum |
+| `/api/cron/check-deadlines` | `*/15 * * * *` | Auto-refund jobs whose deadlines have passed |
 
-For production stress runs, set:
+GitHub Actions (`.github/workflows/cron-pings.yml`) curls each endpoint with the `CRON_SECRET` bearer.
 
-- `WORKPROOF_CONTRACT=0xA2BD5625E382eB759379681C69f319501b7BA7F1`
-- `GENLAYER_CONTRACT=0x08DCD81C82D1760993E629ad8D6753FFE4739179`
+## Idempotency
 
-## V3 frontend-driven review flow
+The `genlayer_submissions` table has `unique (submission_id, attempt)`. Every signing path (public route + cron) does a pre-flight `SELECT` and returns the prior `glTxId` if a row exists. A race between two concurrent requests is caught by the DB constraint.
 
-WorkProof V3 does not require the oracle service for submission, review, approval, or claims. The freelancer records a submission on Arbitrum Sepolia, then signs the GenLayer StudioNet verification from the browser. The UI reads verdicts and competitive rankings directly from GenLayer. The client approves the highest passing submission on Arbitrum, which makes the reward claimable by the selected freelancer.
+## Deploys
 
-Competitive jobs accept up to three submissions per freelancer and only unlock client approval after the deadline. Direct and application jobs can be approved immediately after a passing GenLayer verdict.
-- `WORKPROOF_APP_URL=https://workproof-gen-daves-projects.vercel.app`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_KEY`
-- `ORACLE_PRIVATE_KEY`
+Vercel auto-deploys on every push to `main` (`createDeployments: enabled`, `productionBranch: main`). No manual `vercel deploy` is needed unless you want to redeploy without a code change.
+
+## Where the GenLayer signing happens
+
+Exactly one file: `frontend/lib/oracle/genlayer.ts`. The `scripts/check-no-non-oracle-genlayer.ts` gate enforces this — any other source file containing a `verify_submission`/`verify_work` write pattern fails `npm run check`.
+
+## Investigating a stuck GenLayer tx
+
+```sh
+npx tsx scripts/inspect-genlayer-tx.ts 0xabc...
+```
+
+Prints `from_address`, `to_address`, `result_name`, `consensus_history`, and the leader output. Common failures:
+
+- `result_name: NO_MAJORITY` — validators couldn't agree. Usually because the deliverable URL host is not in the GenLayer accessible-domain list (`frontend/lib/genlayer-reachability.ts`).
+- `from_address` ≠ the configured oracle — a non-oracle path slipped through (impossible now thanks to the runtime guard, but a stale tx from before the fix can still show up).
+
+## License
+
+MIT

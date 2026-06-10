@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { EthAmount } from "@/components/shared/EthAmount";
 import { useTx } from "@/components/shared/TxToast";
 import type { Claim } from "@/lib/types";
 
 export function ClaimCard({ claim }: { claim: Claim }) {
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
   const [claimed, setClaimed] = useState(claim.status === "claimed");
@@ -15,15 +17,19 @@ export function ClaimCard({ claim }: { claim: Claim }) {
   async function claimReward() {
     const addr = workProofAddress;
     if (!addr) return;
+    const args = [claim.job_id_onchain as `0x${string}`] as const;
     const hash = await run({
       label: "Claiming reward",
       pending: "Sending payout to your wallet…",
       success: "Reward in your wallet",
+      // Pre-flight so DISPUTE_WINDOW / ALREADY_CLAIMED surface a friendly reason
+      // instead of a raw on-chain revert.
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "claimReward", args, account: address }),
       write: () => writeContractAsync({
         address: addr,
         abi: workProofAbi,
         functionName: "claimReward",
-        args: [claim.job_id_onchain as `0x${string}`]
+        args
       })
     });
     if (!hash) return;

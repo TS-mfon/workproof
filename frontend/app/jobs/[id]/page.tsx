@@ -12,6 +12,9 @@ import { Mono } from "@/components/shared/Mono";
 import { getActivities, getJob } from "@/lib/data";
 import { timeLeft } from "@/lib/format";
 
+// Always render against live chain state — never serve a cached/stale status.
+export const dynamic = "force-dynamic";
+
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const [job, activities] = await Promise.all([getJob(id), getActivities(20, id)]);

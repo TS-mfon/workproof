@@ -2,31 +2,41 @@ import { getSupabaseServer } from "./supabase";
 import { getOnchainActivities, getOnchainJob, getOnchainJobs, getOnchainUsers } from "./onchain";
 import type { Activity, Claim, Job, UserProfile } from "./types";
 
+// CHAIN-AUTHORITATIVE. The contract is the single source of truth for which
+// jobs exist and their live status — Supabase is only a description cache. This
+// guarantees the marketplace and the dashboards never diverge, no duplicates,
+// and no ghost rows lingering from a previous contract deployment.
 export async function getJobs(limit = 100): Promise<Job[]> {
-  const supabase = getSupabaseServer();
-  if (!supabase) return getOnchainJobs(limit);
-  const { data, error } = await supabase.from("jobs").select("*").order("created_at", { ascending: false }).limit(limit);
-  if (error || !data?.length) return getOnchainJobs(limit);
-  const supabaseJobs = data as unknown as Job[];
-  // Merge on-chain jobs for any that may not be in Supabase yet, deduplicate by job_id_onchain
   const onchainJobs = await getOnchainJobs(limit);
-  const seen = new Set<string>();
-  const merged: Job[] = [];
-  for (const j of [...supabaseJobs, ...onchainJobs]) {
-    if (!seen.has(j.job_id_onchain)) {
-      seen.add(j.job_id_onchain);
-      merged.push(j);
-    }
+  const supabase = getSupabaseServer();
+  if (!supabase || onchainJobs.length === 0) return onchainJobs;
+  // Overlay the richer client-authored description (the chain only stores
+  // criteria-derived text) keyed by lower-cased job_id_onchain.
+  const ids = onchainJobs.map((j) => j.job_id_onchain);
+  const { data } = await supabase.from("jobs").select("job_id_onchain, description").in("job_id_onchain", ids);
+  const descById = new Map<string, string>();
+  for (const r of data ?? []) {
+    const d = (r as any).description;
+    if (d) descById.set(String((r as any).job_id_onchain).toLowerCase(), d);
   }
-  return merged.slice(0, limit);
+  return onchainJobs.map((j) => {
+    const d = descById.get(j.job_id_onchain.toLowerCase());
+    return d ? { ...j, description: d } : j;
+  });
 }
 
 export async function getJob(id: string) {
+  // Chain first — never serve a stale cached status for the detail page.
+  const chainJob = await getOnchainJob(id);
   const supabase = getSupabaseServer();
-  if (!supabase) return getOnchainJob(id);
-  const { data, error } = await supabase.from("jobs").select("*").eq("job_id_onchain", id).maybeSingle();
-  if (error || !data) return getOnchainJob(id);
-  return data as Job;
+  if (!supabase) return chainJob;
+  if (!chainJob) {
+    const { data } = await supabase.from("jobs").select("*").eq("job_id_onchain", id).maybeSingle();
+    return (data as Job) ?? null;
+  }
+  const { data } = await supabase.from("jobs").select("description").eq("job_id_onchain", id).maybeSingle();
+  const desc = (data as any)?.description;
+  return desc ? { ...chainJob, description: desc } : chainJob;
 }
 
 export async function getActivities(limit = 20, jobId?: string) {

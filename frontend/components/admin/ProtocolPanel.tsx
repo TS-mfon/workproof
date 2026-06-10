@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useReadContract, useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
 
 export function ProtocolPanel() {
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
 
@@ -27,10 +29,12 @@ export function ProtocolPanel() {
   async function togglePaused() {
     const addr = workProofAddress;
     if (!addr) return;
+    const args = [!paused] as const;
     await run({
       label: paused ? "Resuming protocol" : "Pausing protocol",
       success: paused ? "Protocol resumed" : "Protocol paused",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "setGlobalPaused", args: [!paused] }),
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "setGlobalPaused", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "setGlobalPaused", args }),
       onConfirmed: () => { refetchPaused(); }
     });
   }
@@ -39,10 +43,12 @@ export function ProtocolPanel() {
     const addr = workProofAddress;
     if (!addr) return;
     const seconds = BigInt(Math.round(windowHours * 3600));
+    const args = [seconds] as const;
     await run({
       label: "Updating dispute window",
       success: "Dispute window updated",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "setDisputeWindow", args: [seconds] }),
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "setDisputeWindow", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "setDisputeWindow", args }),
       onConfirmed: () => { refetchWindow(); }
     });
   }

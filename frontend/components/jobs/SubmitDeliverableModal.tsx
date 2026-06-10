@@ -135,16 +135,22 @@ export function SubmitDeliverableModal({
       }
 
       // ---- Stage 1: user signs Arbitrum submitWork ----
+      // Pre-simulate so the button never produces a raw revert (e.g. the user
+      // isn't the assigned freelancer, deadline passed, or attempts exhausted).
       setStage("arbitrum");
+      const submitArgs = [jobId as `0x${string}`, url] as const;
       const hash = await run({
         label: retry ? "Resubmitting deliverable" : "Submitting deliverable",
         pending: "Confirming on Arbitrum…",
         success: "Recorded — handing off to AI reviewer",
+        simulate: () => publicClient!.simulateContract({
+          address: addr, abi: workProofAbi, functionName: "submitWork", args: submitArgs, account: address
+        }),
         write: () => writeContractAsync({
           address: addr,
           abi: workProofAbi,
           functionName: "submitWork",
-          args: [jobId as `0x${string}`, url]
+          args: submitArgs
         })
       });
       if (!hash || !publicClient) {

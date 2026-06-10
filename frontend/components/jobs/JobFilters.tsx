@@ -11,7 +11,7 @@ const SORTS = ["Newest", "Highest reward", "Soonest deadline"];
 
 export function JobFilters({ jobs }: { jobs: Job[] }) {
   const [domain, setDomain] = useState("All");
-  const [status, setStatus] = useState("All");
+  const [status, setStatus] = useState("Open");
   const [sort, setSort] = useState("Newest");
 
   const filtered = useMemo(() => {

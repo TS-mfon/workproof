@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useReadContract, useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
 
 export function UserActions({ wallet }: { wallet: string }) {
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
   const [openBan, setOpenBan] = useState(false);
@@ -22,10 +24,12 @@ export function UserActions({ wallet }: { wallet: string }) {
   async function unban() {
     const addr = workProofAddress;
     if (!addr) return;
+    const args = [wallet as `0x${string}`] as const;
     await run({
       label: "Unbanning wallet",
       success: "Wallet unbanned",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "unbanUser", args: [wallet as `0x${string}`] }),
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "unbanUser", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "unbanUser", args }),
       onConfirmed: () => { refetch(); }
     });
   }
@@ -59,6 +63,8 @@ export function UserActions({ wallet }: { wallet: string }) {
 function BanForm({ wallet, onClose, onDone }: { wallet: string; onClose: () => void; onDone: () => void }) {
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
   const { run } = useTx();
 
@@ -66,10 +72,12 @@ function BanForm({ wallet, onClose, onDone }: { wallet: string; onClose: () => v
     const addr = workProofAddress;
     if (!addr) return;
     setSubmitting(true);
+    const args = [wallet as `0x${string}`, reason] as const;
     await run({
       label: "Banning wallet",
       success: "Wallet banned",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "banUser", args: [wallet as `0x${string}`, reason] }),
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "banUser", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "banUser", args }),
       onConfirmed: () => { onDone(); }
     });
     setSubmitting(false);
@@ -93,6 +101,8 @@ function RepForm({ wallet, onClose }: { wallet: string; onClose: () => void }) {
   const [points, setPoints] = useState<number>(0);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
   const { run } = useTx();
 
@@ -100,10 +110,12 @@ function RepForm({ wallet, onClose }: { wallet: string; onClose: () => void }) {
     const addr = workProofAddress;
     if (!addr) return;
     setSubmitting(true);
+    const args = [wallet as `0x${string}`, BigInt(points), reason] as const;
     await run({
       label: "Adjusting reputation",
       success: "Reputation updated",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "setReputation", args: [wallet as `0x${string}`, BigInt(points), reason] })
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "setReputation", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "setReputation", args })
     });
     setSubmitting(false);
     onClose();

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useAccount, useReadContract, useWriteContract } from "wagmi";
+import { useState } from "react";
+import { useAccount, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
 import { AddressDisplay } from "@/components/shared/AddressDisplay";
@@ -10,6 +10,7 @@ import type { Job } from "@/lib/types";
 
 export function ApplicantsPanel({ job }: { job: Job }) {
   const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
   const isClient = address && address.toLowerCase() === job.client_wallet.toLowerCase();
@@ -30,15 +31,19 @@ export function ApplicantsPanel({ job }: { job: Job }) {
     const addr = workProofAddress;
     if (!addr) return;
     setAcceptingFor(freelancer);
+    const args = [job.job_id_onchain as `0x${string}`, freelancer as `0x${string}`] as const;
     const hash = await run({
       label: `Accepting ${freelancer.slice(0, 6)}…`,
       pending: "Locking the assignment on Arbitrum…",
       success: "Freelancer assigned",
+      simulate: () => publicClient!.simulateContract({
+        address: addr, abi: workProofAbi, functionName: "acceptApplication", args, account: address
+      }),
       write: () => writeContractAsync({
         address: addr,
         abi: workProofAbi,
         functionName: "acceptApplication",
-        args: [job.job_id_onchain as `0x${string}`, freelancer as `0x${string}`]
+        args
       })
     });
     setAcceptingFor(null);

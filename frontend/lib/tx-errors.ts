@@ -46,7 +46,19 @@ const REVERT_COPY: Record<string, string> = {
   REWARD_TRANSFER_FAILED: "The reward transfer failed — try again.",
   REMAINDER_REFUND_FAILED: "The leftover refund transfer failed.",
   REFUND_TRANSFER_FAILED: "Refund transfer failed.",
-  SWEEP_FAILED: "Sweep transfer failed."
+  SWEEP_FAILED: "Sweep transfer failed.",
+  SUBMISSION_NOT_FOUND: "That submission doesn't exist on-chain.",
+  SUBMISSION_RESOLVED: "This submission has already been resolved.",
+  WRONG_JOB: "That submission belongs to a different job.",
+  MAX_ATTEMPTS: "You've used all 3 submission attempts for this job.",
+  COMPETITION_ACTIVE: "You can't approve until the competition deadline passes.",
+  COMPETITIVE_NO_APPLICATION: "Competitive jobs don't take applications — just submit your work.",
+  COMPETITIVE_RANKING_FINAL: "Competitive rankings are final and can't be changed.",
+  NOT_APPLICATION_JOB: "This job doesn't accept applications.",
+  CLIENT_CANNOT_SUBMIT: "Clients can't submit work to their own job.",
+  ASSIGNEE_NOT_ALLOWED: "This job mode doesn't allow pre-assigning a freelancer.",
+  DIRECT_ASSIGNEE_REQUIRED: "A direct job needs an assigned freelancer.",
+  ASSIGNEE_REQUIRED: "A direct job needs an assigned freelancer."
 };
 
 export function friendlyTxError(err: unknown): string {

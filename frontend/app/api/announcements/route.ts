@@ -56,6 +56,24 @@ export async function POST(request: NextRequest) {
     created_by: auth.wallet
   }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Fan out one notification per known user so the in-app bell lights up.
+  try {
+    const { data: users } = await supabase.from("users").select("wallet_address");
+    const rows = (users ?? [])
+      .map((u: { wallet_address: string }) => u.wallet_address?.toLowerCase())
+      .filter(Boolean)
+      .map((wallet: string) => ({
+        recipient_wallet: wallet,
+        kind: "announcement",
+        payload: { message: body.message, announcement_id: data.id, kind: body.kind ?? "info" }
+      }));
+    if (rows.length > 0) {
+      await supabase.from("notifications").insert(rows);
+    }
+  } catch {
+    // Non-fatal — the announcement is already saved.
+  }
   return NextResponse.json({ announcement: data });
 }
 

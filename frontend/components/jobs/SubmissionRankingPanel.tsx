@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
@@ -36,8 +36,6 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
   const [signedAt, setSignedAt] = useState<Record<string, string>>({}); // submissionId -> ISO signed_at if already signed
-  const [busy, setBusy] = useState<string>("");
-  const [error, setError] = useState("");
 
   const isClient = address?.toLowerCase() === job.client_wallet.toLowerCase();
   const deadlinePassed = Date.now() > Date.parse(job.deadline);
@@ -90,49 +88,52 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
     return bp - ap;
   }), [submissions, verdicts]);
 
-  async function completeReview(submission: Submission) {
+  // The oracle handles GenLayer. The submit modal fires /api/genlayer-trigger
+  // right after submitWork, and the ingest-submissions cron is the fallback.
+  // As a belt-and-braces immediacy measure, silently (re)trigger the oracle
+  // once for the viewer's own submission if it isn't signed yet. No user button.
+  const autoTriggered = useRef<Set<string>>(new Set());
+  useEffect(() => {
     if (!address) return;
-    setBusy(submission.submissionId);
-    setError("");
-    try {
-      const res = await fetch("/api/genlayer-trigger", {
+    for (const s of submissions) {
+      const own = address.toLowerCase() === s.freelancer.toLowerCase();
+      const v = verdicts[s.submissionId];
+      if (!own || v?.ready || signedAt[s.submissionId] || autoTriggered.current.has(s.submissionId)) continue;
+      autoTriggered.current.add(s.submissionId);
+      fetch("/api/genlayer-trigger", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           jobId: job.job_id_onchain,
-          submissionId: submission.submissionId,
+          submissionId: s.submissionId,
           freelancer: address,
-          deliverableUrl: submission.deliverableUrl,
+          deliverableUrl: s.deliverableUrl,
           criteria: job.acceptance_criteria,
-          attempt: Number(submission.attempt)
+          attempt: Number(s.attempt)
         })
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok || !payload.ok) {
-        throw new Error(payload.error ?? `AI reviewer rejected the request (${res.status}).`);
-      }
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "GenLayer review failed.");
-    } finally {
-      setBusy("");
+      }).then((r) => r.json()).then((p) => { if (p?.ok) refresh().catch(() => {}); }).catch(() => {});
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, submissions, verdicts, signedAt]);
 
   async function approve(submission: Submission, verdict: Verdict) {
-    if (!workProofAddress) return;
+    if (!workProofAddress || !address) return;
     const contractAddress = workProofAddress;
     await switchChainAsync({ chainId: arbitrumSepolia.id });
     const score = Math.max(0, Math.min(100, Number(verdict.quality_score ?? 0)));
+    const args = [job.job_id_onchain as `0x${string}`, submission.submissionId, score, String(verdict.summary ?? "Client approved GenLayer recommendation")] as const;
     const hash = await run({
       label: "Approving submission",
       pending: "Recording client approval on Arbitrum…",
       success: "Work accepted. Reward is claimable.",
+      simulate: () => publicClient!.simulateContract({
+        address: contractAddress, abi: workProofAbi, functionName: "approveSubmission", args, account: address
+      }),
       write: () => writeContractAsync({
         address: contractAddress,
         abi: workProofAbi,
         functionName: "approveSubmission",
-        args: [job.job_id_onchain as `0x${string}`, submission.submissionId, score, String(verdict.summary ?? "Client approved GenLayer recommendation")]
+        args
       })
     });
     if (hash) setTimeout(() => location.reload(), 1000);
@@ -164,15 +165,12 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
             {verdict.summary && <p className="text-sm">{String(verdict.summary)}</p>}
             {verdict.issues && <p className="text-xs" style={{ color: "var(--danger)" }}>{String(verdict.issues)}</p>}
             <div className="flex gap-2 flex-wrap">
-              {own && !verdict.ready && signedAt[submission.submissionId] && (
+              {!verdict.ready && (
                 <span className="text-xs text-muted">
-                  Awaiting validators — oracle signed at {new Date(signedAt[submission.submissionId]).toLocaleString()}.
+                  {signedAt[submission.submissionId]
+                    ? `Under AI review — oracle submitted at ${new Date(signedAt[submission.submissionId]).toLocaleString()}.`
+                    : "Under AI review — the oracle is sending this to GenLayer…"}
                 </span>
-              )}
-              {own && !verdict.ready && !signedAt[submission.submissionId] && (
-                <button className="btn tiny" disabled={busy === submission.submissionId} onClick={() => completeReview(submission)}>
-                  {busy === submission.submissionId ? "Verifying…" : "Complete GenLayer review"}
-                </button>
               )}
               {canApprove && <button className="btn success tiny" disabled={isPending} onClick={() => approve(submission, verdict)}>
                 Approve winner
@@ -182,7 +180,6 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
           </div>
         );
       })}
-      {error && <p className="text-xs" style={{ color: "var(--danger)" }}>{error}</p>}
     </div>
   );
 }

@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useReadContract, useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
 import { AddressDisplay } from "@/components/shared/AddressDisplay";
 import { Mono } from "@/components/shared/Mono";
 
 export function OracleAdminPanel() {
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
   const [newOracle, setNewOracle] = useState("");
@@ -23,10 +25,12 @@ export function OracleAdminPanel() {
   async function add() {
     const addr = workProofAddress;
     if (!addr || !newOracle.startsWith("0x")) return;
+    const args = [newOracle as `0x${string}`] as const;
     await run({
       label: "Adding oracle",
       success: "Oracle added",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "addOracle", args: [newOracle as `0x${string}`] })
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "addOracle", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "addOracle", args })
     });
     setNewOracle("");
   }
@@ -34,10 +38,12 @@ export function OracleAdminPanel() {
   async function remove() {
     const addr = workProofAddress;
     if (!addr || !removeAddr.startsWith("0x")) return;
+    const args = [removeAddr as `0x${string}`] as const;
     await run({
       label: "Removing oracle",
       success: "Oracle removed",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "removeOracle", args: [removeAddr as `0x${string}`] })
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "removeOracle", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "removeOracle", args })
     });
     setRemoveAddr("");
   }

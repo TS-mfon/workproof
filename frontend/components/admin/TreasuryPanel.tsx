@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import { formatEther } from "viem";
-import { useBalance, useReadContract, useWriteContract } from "wagmi";
+import { useAccount, useBalance, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
 
 export function TreasuryPanel() {
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
   const [dest, setDest] = useState("");
@@ -26,10 +28,12 @@ export function TreasuryPanel() {
   async function sweep() {
     const addr = workProofAddress;
     if (!addr || !dest.startsWith("0x")) return;
+    const args = [dest as `0x${string}`] as const;
     await run({
       label: "Sweeping stuck ETH",
       success: "Sweep complete",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "sweepStuckEth", args: [dest as `0x${string}`] }),
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "sweepStuckEth", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "sweepStuckEth", args }),
       onConfirmed: () => { refetch(); balance.refetch(); }
     });
     setDest("");

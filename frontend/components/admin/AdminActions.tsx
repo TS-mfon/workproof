@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useWriteContract } from "wagmi";
+import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
 
 export function AdminActions({ jobId, status }: { jobId: string; status?: string }) {
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
   const [openOverride, setOpenOverride] = useState(false);
@@ -15,20 +17,24 @@ export function AdminActions({ jobId, status }: { jobId: string; status?: string
   async function pause() {
     const addr = workProofAddress;
     if (!addr) return;
+    const args = [jobId as `0x${string}`, true] as const;
     await run({
       label: "Pausing job",
       success: "Job paused",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "pauseJob", args: [jobId as `0x${string}`, true] })
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "pauseJob", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "pauseJob", args })
     });
   }
 
   async function unpause() {
     const addr = workProofAddress;
     if (!addr) return;
+    const args = [jobId as `0x${string}`, false] as const;
     await run({
       label: "Unpausing job",
       success: "Job unpaused",
-      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "pauseJob", args: [jobId as `0x${string}`, false] })
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "pauseJob", args, account: address }),
+      write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "pauseJob", args })
     });
   }
 
@@ -51,10 +57,12 @@ export function AdminActions({ jobId, status }: { jobId: string; status?: string
         onConfirm={async (reason) => {
           const addr = workProofAddress;
           if (!addr) return;
+          const args = [jobId as `0x${string}`, reason] as const;
           await run({
             label: "Forcing refund",
             success: "Refund issued",
-            write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "adminForceRefund", args: [jobId as `0x${string}`, reason] })
+            simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "adminForceRefund", args, account: address }),
+            write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "adminForceRefund", args })
           });
         }}
       />
@@ -69,10 +77,12 @@ export function AdminActions({ jobId, status }: { jobId: string; status?: string
         onConfirm={async (reason) => {
           const addr = workProofAddress;
           if (!addr) return;
+          const args = [jobId as `0x${string}`, reason] as const;
           await run({
             label: "Deleting job",
             success: "Job deleted",
-            write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "deleteJob", args: [jobId as `0x${string}`, reason] })
+            simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "deleteJob", args, account: address }),
+            write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "deleteJob", args })
           });
         }}
       />
@@ -83,10 +93,12 @@ export function AdminActions({ jobId, status }: { jobId: string; status?: string
         onConfirm={async (passed, pct, reasoning) => {
           const addr = workProofAddress;
           if (!addr) return;
+          const args = [jobId as `0x${string}`, passed, pct, reasoning] as const;
           await run({
             label: passed ? "Overriding to Passed" : "Overriding to Failed",
             success: "Verdict overridden",
-            write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "overrideVerdict", args: [jobId as `0x${string}`, passed, pct, reasoning] })
+            simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName: "overrideVerdict", args, account: address }),
+            write: () => writeContractAsync({ address: addr, abi: workProofAbi, functionName: "overrideVerdict", args })
           });
         }}
       />

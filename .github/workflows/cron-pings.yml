@@ -32,6 +32,13 @@ jobs:
         run: |
           curl -sS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$BASE_URL/api/cron/ingest-submissions" | tee /tmp/ingest.json
           jq -e '.ok == true' /tmp/ingest.json
+      - name: sync-chain
+        env:
+          BASE_URL: ${{ secrets.VERCEL_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -sS --max-time 60 -H "Authorization: Bearer $CRON_SECRET" "$BASE_URL/api/cron/sync-chain" | tee /tmp/sync.json
+          jq -e '.ok == true' /tmp/sync.json
 
   ping-slow:
     if: github.event.schedule == '*/15 * * * *' || github.event_name == 'workflow_dispatch'

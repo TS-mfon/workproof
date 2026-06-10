@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/lib/supabase";
 import { verifyOracleSignature } from "@/lib/oracle-hmac";
 import { ipFromRequest, rateLimit } from "@/lib/rate-limit";
+import { serverPublicClient, serverWorkProofAddress } from "@/lib/server-chain";
+import { readJob, statusName, isAssigned } from "@/lib/workproof-reads";
 
 export async function GET(request: NextRequest) {
   const supabase = getSupabaseServer();
@@ -38,23 +40,60 @@ export async function POST(request: NextRequest) {
   if (typeof body.client_wallet !== "string" || !body.client_wallet.startsWith("0x")) {
     return NextResponse.json({ error: "invalid client_wallet" }, { status: 400 });
   }
-  if (typeof body.job_id_onchain !== "string" || !body.job_id_onchain.startsWith("0x")) {
+  if (typeof body.job_id_onchain !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(body.job_id_onchain)) {
     return NextResponse.json({ error: "invalid job_id_onchain" }, { status: 400 });
   }
 
+  // ANTI-CHEAT: the job must already exist on-chain with locked escrow, and the
+  // caller-supplied client_wallet must match the on-chain client. Trusted fields
+  // (client, escrow, status, deadline, deliverable) are taken FROM CHAIN, not the
+  // request body — so nobody can inject a fake/unfunded job into the cache.
+  const contract = serverWorkProofAddress();
+  if (!contract) return NextResponse.json({ error: "contract not configured" }, { status: 500 });
+  let chainJob;
+  try {
+    chainJob = await readJob(serverPublicClient(), body.job_id_onchain as `0x${string}`, contract);
+  } catch {
+    return NextResponse.json({ error: "job not found on-chain" }, { status: 422 });
+  }
+  if (!chainJob || chainJob.client === "0x0000000000000000000000000000000000000000") {
+    return NextResponse.json({ error: "job does not exist on-chain" }, { status: 422 });
+  }
+  if (chainJob.client.toLowerCase() !== String(body.client_wallet).toLowerCase()) {
+    return NextResponse.json({ error: "client_wallet does not match on-chain client" }, { status: 403 });
+  }
+  if (chainJob.escrowAmount <= 0n) {
+    return NextResponse.json({ error: "no escrow locked on-chain" }, { status: 422 });
+  }
+
   const txHash = body.tx_hash;
-  delete body.tx_hash;
-  const { error: userErr } = await supabase.from("users").upsert({ wallet_address: body.client_wallet, role: "client" }, { onConflict: "wallet_address" });
+  // Build the row from CHAIN-TRUSTED values; only descriptive text comes from the body.
+  const row = {
+    job_id_onchain: body.job_id_onchain,
+    client_wallet: chainJob.client,
+    assigned_to_wallet: isAssigned(chainJob) ? chainJob.assignedFreelancer : null,
+    title: chainJob.title || body.title,
+    description: typeof body.description === "string" ? body.description : "",
+    spec_ipfs_hash: chainJob.specIpfsHash || null,
+    acceptance_criteria: chainJob.acceptanceCriteria || body.acceptance_criteria,
+    domain: chainJob.domain || body.domain,
+    escrow_amount_wei: chainJob.escrowAmount.toString(),
+    reward_amount_wei: chainJob.rewardAmount.toString(),
+    status: statusName(chainJob.status),
+    deadline: new Date(Number(chainJob.deadline) * 1000).toISOString()
+  };
+
+  const { error: userErr } = await supabase.from("users").upsert({ wallet_address: chainJob.client, role: "client" }, { onConflict: "wallet_address" });
   if (userErr) return NextResponse.json({ error: userErr.message }, { status: 500 });
 
-  const { data, error: jobError } = await supabase.from("jobs").insert(body).select("*").single();
+  const { data, error: jobError } = await supabase.from("jobs").upsert(row, { onConflict: "job_id_onchain" }).select("*").single();
   if (jobError) return NextResponse.json({ error: jobError.message }, { status: 500 });
 
   await supabase.from("activity_log").insert({
     event_type: "job_posted",
-    job_id: body.job_id_onchain,
-    actor_wallet: body.client_wallet,
-    metadata: { title: body.title, domain: body.domain, amount: body.escrow_amount_wei },
+    job_id: row.job_id_onchain,
+    actor_wallet: row.client_wallet,
+    metadata: { title: row.title, domain: row.domain, amount: row.escrow_amount_wei },
     tx_hash: txHash
   });
   return NextResponse.json({ job: data });

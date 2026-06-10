@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount, useChainId, useReadContract, useWriteContract } from "wagmi";
+import { useAccount, useChainId, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
@@ -11,6 +11,7 @@ import type { Job } from "@/lib/types";
 export function JobActionPanel({ job }: { job: Job }) {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
   const [openSubmit, setOpenSubmit] = useState(false);
@@ -38,16 +39,18 @@ export function JobActionPanel({ job }: { job: Job }) {
 
   async function call(functionName: "applyForJob" | "cancelJob" | "claimReward", label: string) {
     const addr = workProofAddress;
-    if (!addr) return;
+    if (!addr || !address) return;
+    const args = [job.job_id_onchain as `0x${string}`] as const;
     const hash = await run({
       label,
       pending: `${label}…`,
       success: `${label} confirmed`,
+      simulate: () => publicClient!.simulateContract({ address: addr, abi: workProofAbi, functionName, args, account: address }),
       write: () => writeContractAsync({
         address: addr,
         abi: workProofAbi,
         functionName,
-        args: [job.job_id_onchain as `0x${string}`]
+        args
       })
     });
     if (hash) setTimeout(() => location.reload(), 1200);

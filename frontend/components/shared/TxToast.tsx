@@ -19,6 +19,10 @@ type RunArgs = {
   label: string;
   pending?: string;
   success?: string;
+  // Optional pre-flight: run BEFORE asking the user to sign. If it throws, we
+  // surface the friendly revert reason and never prompt the wallet. Use this to
+  // catch ONLY_FREELANCER / NO_APPLICATION / DISPUTE_WINDOW etc. up front.
+  simulate?: () => Promise<unknown>;
   write: () => Promise<`0x${string}`>;
   onConfirmed?: (hash: `0x${string}`) => void | Promise<void>;
 };
@@ -43,9 +47,22 @@ export function TxToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
 
-  const run = useCallback(async ({ label, pending, success, write, onConfirmed }: RunArgs) => {
+  const run = useCallback(async ({ label, pending, success, simulate, write, onConfirmed }: RunArgs) => {
     const id = ++toastCounter;
-    setToasts((prev) => [...prev, { id, phase: "signing", label }]);
+    // Pre-flight simulation: catch reverts before the wallet prompt.
+    if (simulate) {
+      setToasts((prev) => [...prev, { id, phase: "confirming", label: "Checking…" }]);
+      try {
+        await simulate();
+      } catch (err) {
+        update(id, { phase: "error", label, message: friendlyTxError(err) });
+        setTimeout(() => remove(id), 9000);
+        return undefined;
+      }
+      update(id, { phase: "signing", label });
+    } else {
+      setToasts((prev) => [...prev, { id, phase: "signing", label }]);
+    }
     let hash: `0x${string}` | undefined;
     try {
       hash = await write();

@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
-import { createPublicClient, http } from "viem";
+import { createPublicClient, http, type PublicClient } from "viem";
 import { arbitrumSepolia } from "viem/chains";
-import { workProofAbi, workProofAddress } from "@/lib/contracts";
+import { workProofAddress } from "@/lib/contracts";
+import { chainJobToJob, readAllJobs, readApplicants } from "@/lib/workproof-reads";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { JobsTable } from "@/components/dashboard/JobsTable";
 import { StatsRow } from "@/components/dashboard/StatsRow";
@@ -13,9 +14,9 @@ import { Skeleton } from "@/components/shared/Skeleton";
 import { eth } from "@/lib/format";
 import type { Activity, Job } from "@/lib/types";
 
-function publicClient() {
+function publicClient(): PublicClient {
   const rpc = process.env.NEXT_PUBLIC_ARBITRUM_SEPOLIA_RPC ?? "https://sepolia-rollup.arbitrum.io/rpc";
-  return createPublicClient({ chain: arbitrumSepolia, transport: http(rpc) });
+  return createPublicClient({ chain: arbitrumSepolia, transport: http(rpc) }) as PublicClient;
 }
 
 export function FreelancerDashboard() {
@@ -24,58 +25,49 @@ export function FreelancerDashboard() {
   const [activities, setActivities] = useState<Activity[] | null>(null);
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
 
+  // CHAIN-AUTHORITATIVE: read every job from the contract and check applicant
+  // lists on-chain. The DB is only used to enrich descriptions + the activity feed.
   useEffect(() => {
-    if (!address || !workProofAddress) return;
+    if (!address || !workProofAddress) { setJobs([]); return; }
     const pc = publicClient();
     let alive = true;
     (async () => {
       try {
-        const [ids] = await Promise.all([
-          pc.readContract({ address: workProofAddress as `0x${string}`, abi: workProofAbi, functionName: "getJobIds" }),
-          ...([])
+        const [chainJobs, dbRes] = await Promise.all([
+          readAllJobs(pc),
+          fetch("/api/jobs").then((r) => r.json()).catch(() => ({ jobs: [] }))
         ]);
-
-        // Batch-check hasApplied for the last 50 Open jobs
-        const recentIds = [...ids].reverse().slice(0, 50);
-        const results = await pc.multicall({
-          allowFailure: true,
-          contracts: recentIds.map((jid) => ({
-            address: workProofAddress as `0x${string}`,
-            abi: workProofAbi,
-            functionName: "hasApplied",
-            args: [jid, address]
-          }))
-        });
         if (!alive) return;
+        const dbById = new Map<string, Record<string, unknown>>(
+          (dbRes.jobs ?? []).map((d: Record<string, unknown>) => [String(d.job_id_onchain).toLowerCase(), d])
+        );
+        const mapped = chainJobs.map((cj) => chainJobToJob(cj, dbById.get(cj.jobId.toLowerCase())));
+        setJobs(mapped);
+
+        // Applicant membership straight from chain (Open jobs only).
+        const openIds = chainJobs.filter((j) => j.status === 0).map((j) => j.jobId);
         const applied = new Set<string>();
-        results.forEach((r, i) => {
-          if (r.status === "success" && r.result === true) {
-            applied.add(recentIds[i]);
-          }
-        });
-        setAppliedIds(applied);
-      } catch { /* ignore */ }
+        await Promise.all(openIds.map(async (jid) => {
+          try {
+            const apps = await readApplicants(pc, jid);
+            if (apps.some((a) => a.toLowerCase() === address.toLowerCase())) applied.add(jid);
+          } catch { /* ignore */ }
+        }));
+        if (alive) setAppliedIds(applied);
+      } catch {
+        if (alive) setJobs([]);
+      }
     })();
     return () => { alive = false; };
   }, [address]);
 
   useEffect(() => {
     let alive = true;
-    (async () => {
-      try {
-        const [jobsRes, actsRes] = await Promise.all([
-          fetch("/api/jobs").then((r) => r.json()),
-          fetch("/api/activity").then((r) => r.json())
-        ]);
-        if (!alive) return;
-        setJobs(jobsRes.jobs ?? []);
-        setActivities(actsRes.activities ?? []);
-      } catch {
-        if (alive) { setJobs([]); setActivities([]); }
-      }
-    })();
+    fetch(`/api/activity${address ? `?wallet=${address}` : ""}`).then((r) => r.json())
+      .then((res) => { if (alive) setActivities(res.activities ?? []); })
+      .catch(() => { if (alive) setActivities([]); });
     return () => { alive = false; };
-  }, []);
+  }, [address]);
 
   const wallet = address?.toLowerCase();
 
@@ -89,7 +81,8 @@ export function FreelancerDashboard() {
 
   const myApps = useMemo(() => {
     if (!jobs || appliedIds.size === 0) return [];
-    return jobs.filter((j) => appliedIds.has(j.job_id_onchain) && j.status === "Open");
+    const lowApplied = new Set([...appliedIds].map((x) => x.toLowerCase()));
+    return jobs.filter((j) => lowApplied.has(j.job_id_onchain.toLowerCase()) && j.status === "Open");
   }, [jobs, appliedIds]);
 
   const myActivities = useMemo(() => {

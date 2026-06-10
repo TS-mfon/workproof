@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
+import { createPublicClient, http, type PublicClient } from "viem";
+import { arbitrumSepolia } from "viem/chains";
+import { workProofAddress } from "@/lib/contracts";
+import { chainJobToJob, readAllJobs } from "@/lib/workproof-reads";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { JobsTable } from "@/components/dashboard/JobsTable";
 import { StatsRow } from "@/components/dashboard/StatsRow";
@@ -10,28 +14,46 @@ import { Skeleton } from "@/components/shared/Skeleton";
 import { eth } from "@/lib/format";
 import type { Activity, Job } from "@/lib/types";
 
+function publicClient(): PublicClient {
+  const rpc = process.env.NEXT_PUBLIC_ARBITRUM_SEPOLIA_RPC ?? "https://sepolia-rollup.arbitrum.io/rpc";
+  return createPublicClient({ chain: arbitrumSepolia, transport: http(rpc) }) as PublicClient;
+}
+
 export function ClientDashboard() {
   const { address, isConnected } = useAccount();
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [activities, setActivities] = useState<Activity[] | null>(null);
 
+  // CHAIN-AUTHORITATIVE: read all jobs from the contract; DB enriches descriptions.
   useEffect(() => {
+    if (!workProofAddress) { setJobs([]); return; }
+    const pc = publicClient();
     let alive = true;
     (async () => {
       try {
-        const [jobsRes, actsRes] = await Promise.all([
-          fetch("/api/jobs").then((r) => r.json()),
-          fetch("/api/activity").then((r) => r.json())
+        const [chainJobs, dbRes] = await Promise.all([
+          readAllJobs(pc),
+          fetch("/api/jobs").then((r) => r.json()).catch(() => ({ jobs: [] }))
         ]);
         if (!alive) return;
-        setJobs(jobsRes.jobs ?? []);
-        setActivities(actsRes.activities ?? []);
+        const dbById = new Map<string, Record<string, unknown>>(
+          (dbRes.jobs ?? []).map((d: Record<string, unknown>) => [String(d.job_id_onchain).toLowerCase(), d])
+        );
+        setJobs(chainJobs.map((cj) => chainJobToJob(cj, dbById.get(cj.jobId.toLowerCase()))));
       } catch {
-        if (alive) { setJobs([]); setActivities([]); }
+        if (alive) setJobs([]);
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [address]);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/activity${address ? `?wallet=${address}` : ""}`).then((r) => r.json())
+      .then((res) => { if (alive) setActivities(res.activities ?? []); })
+      .catch(() => { if (alive) setActivities([]); });
+    return () => { alive = false; };
+  }, [address]);
 
   const wallet = address?.toLowerCase();
 

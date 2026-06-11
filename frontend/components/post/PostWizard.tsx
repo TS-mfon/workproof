@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { parseEther, parseEventLogs, zeroAddress } from "viem";
 import { useAccount, useChainId, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { arbitrumSepolia } from "viem/chains";
@@ -47,6 +47,10 @@ export function PostWizard() {
   const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
+  // Synchronous guard against double-fire: `isPending` flips async (after the
+  // wallet call starts), so a fast double-click could fire two posts before it
+  // updates. A ref is set the instant submit begins.
+  const inFlight = useRef(false);
 
   const { data: banned } = useReadContract({
     address: workProofAddress,
@@ -116,75 +120,85 @@ export function PostWizard() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    const addr = workProofAddress;
-    if (!isConnected || !address || !addr || !publicClient) {
-      setError("Connect a wallet to post.");
-      return;
-    }
-    if (chainId !== arbitrumSepolia.id) {
-      setError("Switch your wallet to Arbitrum Sepolia first.");
-      return;
-    }
-    if (banned) {
-      setError("Your wallet is restricted by an admin.");
-      return;
-    }
-    if (!canNext) {
-      setError("Fix the validation errors before posting.");
-      return;
-    }
-    const deadlineSec = BigInt(Math.floor(Date.parse(form.deadline) / 1000));
-    const assignedAddress = (form.mode === "direct" ? form.assigned : zeroAddress) as `0x${string}`;
-    const mode = form.mode === "application" ? 0 : form.mode === "direct" ? 1 : 2;
-    // Store the project brief and criteria together so the on-chain fallback can read the full description
-    // Format: PROJECT BRIEF:\n<description>\n\nACCEPTANCE CRITERIA:\n<criteria>
-    const enrichedCriteria = `PROJECT BRIEF:\n${form.description}\n\nACCEPTANCE CRITERIA:\n${form.criteria}\n\nDELIVERABLES:\n- One public URL accessible by any HTTP client.`;
-    const hash = await run({
-      label: "Posting job",
-      pending: "Locking escrow on Arbitrum…",
-      success: "Job posted",
-      write: () =>
-        writeContractAsync({
-          address: addr,
-          abi: workProofAbi,
-          functionName: "postJobV3",
-          args: [form.title, "", enrichedCriteria, form.domain, deadlineSec, assignedAddress, mode],
-          value: parseEther(form.reward)
-        })
-    });
-    if (!hash) return;
+    // Only the final Review step posts. Pressing Enter in an input on an earlier
+    // step triggers implicit form submission — without this guard that would
+    // fire postJobV3 prematurely (default reward, empty criteria → a junk job).
+    if (step !== STEPS.length - 1) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      const logs = parseEventLogs({ abi: workProofAbi, eventName: "JobPosted", logs: receipt.logs });
-      const jobId = logs[0]?.args.jobId;
-      if (!jobId) {
-        setError("Job posted on-chain but the JobPosted event wasn't found.");
+      setError("");
+      const addr = workProofAddress;
+      if (!isConnected || !address || !addr || !publicClient) {
+        setError("Connect a wallet to post.");
         return;
       }
-      await fetch("/api/jobs", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          job_id_onchain: jobId,
-          client_wallet: address,
-          assigned_to_wallet: form.mode === "direct" ? form.assigned : null,
-          title: form.title,
-          description: form.description,
-          spec_ipfs_hash: null,
-          acceptance_criteria: form.criteria,
-          domain: form.domain,
-          escrow_amount_wei: parseEther(form.reward).toString(),
-          reward_amount_wei: parseEther(form.reward).toString(),
-          status: form.mode === "direct" ? "Active" : "Open",
-          deadline: new Date(Number(deadlineSec) * 1000).toISOString(),
-          tx_hash: hash
-        })
-      }).catch(() => {});
-      window.history.replaceState(null, "", "/jobs/post");
-      location.href = `/jobs/${jobId}`;
-    } catch (err: any) {
-      setError(err?.message || "Could not finalize indexing — the on-chain post is recorded.");
+      if (chainId !== arbitrumSepolia.id) {
+        setError("Switch your wallet to Arbitrum Sepolia first.");
+        return;
+      }
+      if (banned) {
+        setError("Your wallet is restricted by an admin.");
+        return;
+      }
+      if (!canNext) {
+        setError("Fix the validation errors before posting.");
+        return;
+      }
+      const deadlineSec = BigInt(Math.floor(Date.parse(form.deadline) / 1000));
+      const assignedAddress = (form.mode === "direct" ? form.assigned : zeroAddress) as `0x${string}`;
+      const mode = form.mode === "application" ? 0 : form.mode === "direct" ? 1 : 2;
+      // Store the project brief and criteria together so the on-chain fallback can read the full description
+      // Format: PROJECT BRIEF:\n<description>\n\nACCEPTANCE CRITERIA:\n<criteria>
+      const enrichedCriteria = `PROJECT BRIEF:\n${form.description}\n\nACCEPTANCE CRITERIA:\n${form.criteria}\n\nDELIVERABLES:\n- One public URL accessible by any HTTP client.`;
+      const hash = await run({
+        label: "Posting job",
+        pending: "Locking escrow on Arbitrum…",
+        success: "Job posted",
+        write: () =>
+          writeContractAsync({
+            address: addr,
+            abi: workProofAbi,
+            functionName: "postJobV3",
+            args: [form.title, "", enrichedCriteria, form.domain, deadlineSec, assignedAddress, mode],
+            value: parseEther(form.reward)
+          })
+      });
+      if (!hash) return;
+      try {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        const logs = parseEventLogs({ abi: workProofAbi, eventName: "JobPosted", logs: receipt.logs });
+        const jobId = logs[0]?.args.jobId;
+        if (!jobId) {
+          setError("Job posted on-chain but the JobPosted event wasn't found.");
+          return;
+        }
+        await fetch("/api/jobs", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            job_id_onchain: jobId,
+            client_wallet: address,
+            assigned_to_wallet: form.mode === "direct" ? form.assigned : null,
+            title: form.title,
+            description: form.description,
+            spec_ipfs_hash: null,
+            acceptance_criteria: form.criteria,
+            domain: form.domain,
+            escrow_amount_wei: parseEther(form.reward).toString(),
+            reward_amount_wei: parseEther(form.reward).toString(),
+            status: form.mode === "direct" ? "Active" : "Open",
+            deadline: new Date(Number(deadlineSec) * 1000).toISOString(),
+            tx_hash: hash
+          })
+        }).catch(() => {});
+        window.history.replaceState(null, "", "/jobs/post");
+        location.href = `/jobs/${jobId}`;
+      } catch (err: any) {
+        setError(err?.message || "Could not finalize indexing — the on-chain post is recorded.");
+      }
+    } finally {
+      inFlight.current = false;
     }
   }
 

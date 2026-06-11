@@ -67,6 +67,16 @@ export async function GET(request: NextRequest) {
         if (newStatus === "Active" && assigned) {
           activity.push({ event_type: "job_accepted", job_id: id, actor_wallet: j.client, target_wallet: assigned, metadata: { title: j.title } });
           notifications.push({ recipient_wallet: assigned.toLowerCase(), kind: "accepted", job_id: id, payload: { message: `You were accepted for "${j.title}".` } });
+        } else if (newStatus === "UnderReview" && assigned) {
+          // Work was just submitted — let the client know it's under AI review.
+          activity.push({ event_type: "work_submitted", job_id: id, actor_wallet: assigned, target_wallet: j.client, metadata: { title: j.title } });
+          notifications.push({ recipient_wallet: j.client.toLowerCase(), kind: "work_submitted", job_id: id, payload: { message: `A freelancer submitted work for "${j.title}" — it's now under AI review.` } });
+        } else if (newStatus === "AwaitingApproval" && assigned) {
+          // GenLayer passed the work. Notify both sides: the freelancer is waiting
+          // on the client, and the client must approve to release the reward.
+          activity.push({ event_type: "verdict_pass", job_id: id, actor_wallet: assigned, metadata: { title: j.title } });
+          notifications.push({ recipient_wallet: assigned.toLowerCase(), kind: "verdict_pass", job_id: id, payload: { message: `Your work for "${j.title}" passed AI review — waiting on the client to approve and release the reward.` } });
+          notifications.push({ recipient_wallet: j.client.toLowerCase(), kind: "approval_needed", job_id: id, payload: { message: `A submission for "${j.title}" passed AI review — approve it to release the reward.` } });
         } else if (newStatus === "Passed" && assigned) {
           activity.push({ event_type: "verdict_pass", job_id: id, actor_wallet: assigned, metadata: { title: j.title } });
           notifications.push({ recipient_wallet: assigned.toLowerCase(), kind: "verdict_pass", job_id: id, payload: { message: `Your work for "${j.title}" passed — claim your reward.` } });

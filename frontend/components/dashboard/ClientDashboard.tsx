@@ -88,6 +88,7 @@ export function ClientDashboard() {
   const open = myJobs.filter((j) => j.status === "Open");
   const active = myJobs.filter((j) => j.status === "Active");
   const review = myJobs.filter((j) => j.status === "UnderReview");
+  const awaiting = myJobs.filter((j) => j.status === "AwaitingApproval");
   const completed = myJobs.filter((j) => j.status === "Complete");
   const refunded = myJobs.filter((j) => j.status === "Refunded");
 
@@ -97,7 +98,7 @@ export function ClientDashboard() {
 
   const stats = [
     { label: "Total posted", value: myJobs.length.toString() },
-    { label: "Open / In progress", value: (open.length + active.length).toString() },
+    { label: "Open / In progress", value: (open.length + active.length + review.length + awaiting.length).toString() },
     { label: "Locked in escrow", value: eth(escrowed) },
     { label: "Completed", value: completed.length.toString() }
   ];
@@ -141,6 +142,18 @@ export function ClientDashboard() {
           <EmptyState title="Nothing under review" message="Submissions awaiting GenLayer verdict will show here." />
         ) : (
           <JobsTable jobs={review} />
+        )}
+      </section>
+
+      <section className="grid gap-3">
+        <h2 className="text-xl font-bold">Awaiting your approval</h2>
+        <p className="text-sm text-muted" style={{ marginTop: 2, marginBottom: 4 }}>
+          These submissions passed AI review. Open the job and approve the work to release the reward to the freelancer.
+        </p>
+        {awaiting.length === 0 ? (
+          <EmptyState title="Nothing awaiting approval" message="Passed submissions that need your sign-off appear here." />
+        ) : (
+          <JobsTable jobs={awaiting} />
         )}
       </section>
 

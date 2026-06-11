@@ -26,7 +26,11 @@ export async function relayVerdict(input: {
 
   if (input.passed) {
     await updateJob(input.jobId, {
-      status: "Passed",
+      // Chain truth after receiveVerdict(pass) is AwaitingApproval — the client
+      // still has to approveSubmission before the reward becomes claimable.
+      // Writing the real status keeps sync-chain's transition diffing correct
+      // (so the later AwaitingApproval→Passed "claim your reward" notif fires).
+      status: "AwaitingApproval",
       ai_verdict: {
         meets_criteria: true,
         quality_score: input.qualityScore,

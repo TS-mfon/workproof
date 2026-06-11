@@ -12,7 +12,7 @@ export function SubmissionPanel({ job }: { job: Job }) {
   const isClient = wallet === job.client_wallet.toLowerCase();
   const isFreelancer = wallet === (job.freelancer_wallet || job.assigned_to_wallet || "").toLowerCase();
 
-  const visibleStatuses = new Set(["UnderReview", "Failed", "Passed", "Complete"]);
+  const visibleStatuses = new Set(["UnderReview", "AwaitingApproval", "Failed", "Passed", "Complete"]);
   if (!visibleStatuses.has(job.status)) return null;
   if (!isClient && !isFreelancer) return null;
   if (!job.deliverable_url) return null;
@@ -76,7 +76,7 @@ export function SubmissionPanel({ job }: { job: Job }) {
         </div>
       )}
 
-      {(job.status === "Passed" || job.status === "Failed" || job.status === "Complete") && verdict && (
+      {(job.status === "AwaitingApproval" || job.status === "Passed" || job.status === "Failed" || job.status === "Complete") && verdict && (
         <div className="grid gap-3">
           {typeof qualityScore !== "undefined" && (
             <div className="flex gap-3 text-sm">

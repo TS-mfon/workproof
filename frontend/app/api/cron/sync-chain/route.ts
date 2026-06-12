@@ -3,6 +3,7 @@ import { authorizeCron, logJson } from "@/lib/oracle/cronAuth";
 import { serviceSupabase } from "@/lib/oracle/supabase";
 import { serverPublicClient, serverWorkProofAddress } from "@/lib/server-chain";
 import { readAllJobs, readApplicants, statusName, modeName, isAssigned } from "@/lib/workproof-reads";
+import { eventKey, upsertEvents } from "@/lib/oracle/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,8 @@ export async function GET(request: NextRequest) {
   const supabase = serviceSupabase();
   const pc = serverPublicClient();
 
-  let jobsSynced = 0, appsAdded = 0, claimsAdded = 0, transitions = 0;
+  let inserted = 0, updated = 0, failed = 0, appsAdded = 0, claimsAdded = 0, notified = 0, transitions = 0;
+  const errors: Array<{ jobId: string; error: string }> = [];
 
   try {
     const chainJobs = await readAllJobs(pc, contract);
@@ -37,18 +39,27 @@ export async function GET(request: NextRequest) {
 
     for (const j of chainJobs) {
       const id = j.jobId;
-      const newStatus = statusName(j.status);
-      const assigned = isAssigned(j) ? j.assignedFreelancer : null;
-      const prev = prior.get(id.toLowerCase());
+      try {
+        const newStatus = statusName(j.status);
+        const assigned = isAssigned(j) ? j.assignedFreelancer : null;
+        const prev = prior.get(id.toLowerCase());
 
-      // Upsert the job row from chain-trusted values. We deliberately OMIT
-      // `description` so the richer client-provided text is preserved.
-      const row: Record<string, unknown> = {
+        const wallets = [j.client, assigned].filter(Boolean).map((wallet) => ({
+          wallet_address: String(wallet).toLowerCase()
+        }));
+        const { error: usersError } = await supabase.from("users").upsert(wallets, {
+          onConflict: "wallet_address",
+          ignoreDuplicates: true
+        });
+        if (usersError) throw usersError;
+
+        const row: Record<string, unknown> = {
         job_id_onchain: id,
-        client_wallet: j.client,
-        freelancer_wallet: assigned,
-        assigned_to_wallet: assigned,
+        client_wallet: j.client.toLowerCase(),
+        freelancer_wallet: assigned?.toLowerCase() ?? null,
+        assigned_to_wallet: assigned?.toLowerCase() ?? null,
         title: j.title,
+        description: prev?.description || `On-chain job: ${j.title}`,
         acceptance_criteria: j.acceptanceCriteria,
         domain: j.domain,
         escrow_amount_wei: j.escrowAmount.toString(),
@@ -59,48 +70,51 @@ export async function GET(request: NextRequest) {
         deadline: new Date(Number(j.deadline) * 1000).toISOString()
       };
       const { error: upErr } = await supabase.from("jobs").upsert(row, { onConflict: "job_id_onchain" });
-      if (!upErr) jobsSynced++;
+      if (upErr) throw upErr;
+      if (prev) updated++; else inserted++;
 
       // Transition detection → activity + notifications.
       if (prev && prev.status !== newStatus) {
         transitions++;
         if (newStatus === "Active" && assigned) {
-          activity.push({ event_type: "job_accepted", job_id: id, actor_wallet: j.client, target_wallet: assigned, metadata: { title: j.title } });
-          notifications.push({ recipient_wallet: assigned.toLowerCase(), kind: "accepted", job_id: id, payload: { message: `You were accepted for "${j.title}".` } });
+          activity.push({ event_key: eventKey("job", id, newStatus, "activity"), event_type: "job_accepted", job_id: id, actor_wallet: j.client, target_wallet: assigned, metadata: { title: j.title } });
+          notifications.push({ event_key: eventKey("job", id, newStatus, assigned), recipient_wallet: assigned.toLowerCase(), kind: "accepted", job_id: id, payload: { message: `You were accepted for "${j.title}".` } });
         } else if (newStatus === "UnderReview" && assigned) {
           // Work was just submitted — let the client know it's under AI review.
-          activity.push({ event_type: "work_submitted", job_id: id, actor_wallet: assigned, target_wallet: j.client, metadata: { title: j.title } });
-          notifications.push({ recipient_wallet: j.client.toLowerCase(), kind: "work_submitted", job_id: id, payload: { message: `A freelancer submitted work for "${j.title}" — it's now under AI review.` } });
+          activity.push({ event_key: eventKey("job", id, newStatus, "activity"), event_type: "work_submitted", job_id: id, actor_wallet: assigned, target_wallet: j.client, metadata: { title: j.title } });
+          notifications.push({ event_key: eventKey("job", id, newStatus, j.client), recipient_wallet: j.client.toLowerCase(), kind: "work_submitted", job_id: id, payload: { message: `A freelancer submitted work for "${j.title}" - it's now under AI review.` } });
         } else if (newStatus === "AwaitingApproval" && assigned) {
           // GenLayer passed the work. Notify both sides: the freelancer is waiting
           // on the client, and the client must approve to release the reward.
-          activity.push({ event_type: "verdict_pass", job_id: id, actor_wallet: assigned, metadata: { title: j.title } });
-          notifications.push({ recipient_wallet: assigned.toLowerCase(), kind: "verdict_pass", job_id: id, payload: { message: `Your work for "${j.title}" passed AI review — waiting on the client to approve and release the reward.` } });
-          notifications.push({ recipient_wallet: j.client.toLowerCase(), kind: "approval_needed", job_id: id, payload: { message: `A submission for "${j.title}" passed AI review — approve it to release the reward.` } });
+          activity.push({ event_key: eventKey("job", id, newStatus, "activity"), event_type: "verdict_pass", job_id: id, actor_wallet: assigned, metadata: { title: j.title } });
+          notifications.push({ event_key: eventKey("job", id, newStatus, assigned), recipient_wallet: assigned.toLowerCase(), kind: "verdict_pass", job_id: id, payload: { message: `Your work for "${j.title}" passed AI review - waiting on client approval.` } });
+          notifications.push({ event_key: eventKey("job", id, newStatus, j.client), recipient_wallet: j.client.toLowerCase(), kind: "approval_needed", job_id: id, payload: { message: `A submission for "${j.title}" passed AI review - approve it to release the reward.` } });
         } else if (newStatus === "Passed" && assigned) {
-          activity.push({ event_type: "verdict_pass", job_id: id, actor_wallet: assigned, metadata: { title: j.title } });
-          notifications.push({ recipient_wallet: assigned.toLowerCase(), kind: "verdict_pass", job_id: id, payload: { message: `Your work for "${j.title}" passed — claim your reward.` } });
+          activity.push({ event_key: eventKey("job", id, newStatus, "activity"), event_type: "verdict_pass", job_id: id, actor_wallet: assigned, metadata: { title: j.title } });
+          notifications.push({ event_key: eventKey("job", id, newStatus, assigned), recipient_wallet: assigned.toLowerCase(), kind: "verdict_pass", job_id: id, payload: { message: `Your work for "${j.title}" passed - claim your reward.` } });
         } else if (newStatus === "Failed" && assigned) {
-          activity.push({ event_type: "verdict_fail", job_id: id, actor_wallet: assigned, metadata: { title: j.title, retry: Number(j.retryCount) } });
-          notifications.push({ recipient_wallet: assigned.toLowerCase(), kind: "verdict_fail", job_id: id, payload: { message: `Your work for "${j.title}" was rejected. ${3 - Number(j.retryCount)} attempt(s) left.` } });
+          activity.push({ event_key: eventKey("job", id, newStatus, Number(j.retryCount), "activity"), event_type: "verdict_fail", job_id: id, actor_wallet: assigned, metadata: { title: j.title, retry: Number(j.retryCount) } });
+          notifications.push({ event_key: eventKey("job", id, newStatus, Number(j.retryCount), assigned), recipient_wallet: assigned.toLowerCase(), kind: "verdict_fail", job_id: id, payload: { message: `Your work for "${j.title}" was rejected. ${3 - Number(j.retryCount)} attempt(s) left.` } });
         } else if (newStatus === "Complete" && assigned) {
-          activity.push({ event_type: "reward_claimed", job_id: id, actor_wallet: assigned, metadata: { title: j.title } });
+          activity.push({ event_key: eventKey("job", id, newStatus, "activity"), event_type: "reward_claimed", job_id: id, actor_wallet: assigned, metadata: { title: j.title } });
         } else if (newStatus === "Refunded") {
-          activity.push({ event_type: "refund_issued", job_id: id, actor_wallet: j.client, metadata: { title: j.title } });
+          activity.push({ event_key: eventKey("job", id, newStatus, "activity"), event_type: "refund_issued", job_id: id, actor_wallet: j.client, metadata: { title: j.title } });
         }
       }
 
       // Backfill claim_queue for Passed jobs (idempotent).
       if (newStatus === "Passed" && assigned) {
-        const { data: existing } = await supabase.from("claim_queue").select("id").eq("job_id_onchain", id).maybeSingle();
+        const { data: existing, error: claimLookupError } = await supabase.from("claim_queue").select("id").eq("job_id_onchain", id).maybeSingle();
+        if (claimLookupError) throw claimLookupError;
         if (!existing) {
-          await supabase.from("claim_queue").insert({
+          const { error: claimError } = await supabase.from("claim_queue").insert({
             job_id_onchain: id,
             freelancer_wallet: assigned.toLowerCase(),
             reward_wei: j.rewardAmount.toString(),
             status: "pending",
             passed_at: new Date(Number(j.verdictAt) * 1000).toISOString()
           });
+          if (claimError) throw claimError;
           claimsAdded++;
         }
       }
@@ -118,23 +132,39 @@ export async function GET(request: NextRequest) {
             for (const a of applicants) {
               const low = a.toLowerCase();
               if (known.has(low)) continue;
-              await supabase.from("job_applications").insert({ job_id_onchain: id, freelancer_wallet: low, status: "pending" });
+              const { error: applicantUserError } = await supabase.from("users").upsert(
+                { wallet_address: low, role: "freelancer" },
+                { onConflict: "wallet_address", ignoreDuplicates: true }
+              );
+              if (applicantUserError) throw applicantUserError;
+              const { error: applicationError } = await supabase.from("job_applications").insert({ job_id_onchain: id, freelancer_wallet: low, status: "pending" });
+              if (applicationError) throw applicationError;
               appsAdded++;
-              activity.push({ event_type: "application_submitted", job_id: id, actor_wallet: low, metadata: { title: j.title } });
-              notifications.push({ recipient_wallet: j.client.toLowerCase(), kind: "application", job_id: id, payload: { message: `${low.slice(0, 6)}…${low.slice(-4)} applied to "${j.title}".` } });
+              activity.push({ event_key: eventKey("application", id, low, "activity"), event_type: "application_submitted", job_id: id, actor_wallet: low, metadata: { title: j.title } });
+              notifications.push({ event_key: eventKey("application", id, low, j.client), recipient_wallet: j.client.toLowerCase(), kind: "application", job_id: id, payload: { message: `${low.slice(0, 6)}...${low.slice(-4)} applied to "${j.title}".` } });
             }
           }
         } catch (e) {
           logJson("cron/sync-chain", "warn", "applicants read failed", { jobId: id, error: (e as Error).message });
+          throw e;
         }
+      }
+      } catch (e) {
+        failed++;
+        const message = (e as Error).message.slice(0, 240);
+        errors.push({ jobId: id, error: message });
+        logJson("cron/sync-chain", "error", "job sync failed", { jobId: id, error: message });
       }
     }
 
-    if (activity.length) await supabase.from("activity_log").insert(activity);
-    if (notifications.length) await supabase.from("notifications").insert(notifications);
+    await upsertEvents(supabase, "activity_log", activity);
+    notified = await upsertEvents(supabase, "notifications", notifications);
 
-    logJson("cron/sync-chain", "info", "synced", { jobsSynced, appsAdded, claimsAdded, transitions });
-    return NextResponse.json({ ok: true, jobsSynced, appsAdded, claimsAdded, transitions });
+    logJson("cron/sync-chain", failed ? "error" : "info", "synced", { inserted, updated, failed, appsAdded, claimsAdded, notified, transitions, errors });
+    return NextResponse.json(
+      { ok: failed === 0, inserted, updated, failed, appsAdded, claimsAdded, notified, transitions, errors },
+      { status: failed === 0 ? 200 : 500 }
+    );
   } catch (e) {
     logJson("cron/sync-chain", "error", "cycle failed", { error: (e as Error).message });
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });

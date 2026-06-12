@@ -43,9 +43,13 @@ alter table user_badges enable row level security;
 alter table quests enable row level security;
 alter table quest_progress enable row level security;
 
+drop policy if exists "badges public" on badges;
 create policy "badges public" on badges for select using (true);
+drop policy if exists "user_badges public" on user_badges;
 create policy "user_badges public" on user_badges for select using (true);
+drop policy if exists "quests public" on quests;
 create policy "quests public" on quests for select using (true);
+drop policy if exists "quest_progress public" on quest_progress;
 create policy "quest_progress public" on quest_progress for select using (true);
 
 -- Seed catalogue

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount } from "wagmi";
+import { useWalletSession } from "@/lib/wallet-session-client";
 
 type Notification = {
   id: string;
@@ -14,18 +15,21 @@ type Notification = {
 
 export function NotificationBell() {
   const { address } = useAccount();
+  const { ensureSession } = useWalletSession();
   const [items, setItems] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (authenticate = false) => {
     if (!address) { setItems([]); return; }
     try {
-      const res = await fetch(`/api/notifications?wallet=${address}`, { cache: "no-store" });
+      if (authenticate) await ensureSession();
+      const res = await fetch("/api/notifications", { cache: "no-store" });
+      if (!res.ok) return;
       const body = await res.json();
       setItems(body.notifications ?? []);
     } catch { /* ignore */ }
-  }, [address]);
+  }, [address, ensureSession]);
 
   useEffect(() => {
     load();
@@ -46,15 +50,17 @@ export function NotificationBell() {
   async function toggle() {
     const next = !open;
     setOpen(next);
-    if (next && unseen > 0 && address) {
-      // Optimistically clear, then persist.
-      setItems((prev) => prev.map((n) => ({ ...n, seen_at: n.seen_at ?? new Date().toISOString() })));
+    if (next && address) {
+      await load(true);
+    }
+    if (next && address) {
       try {
         await fetch("/api/notifications", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "mark-seen", wallet: address })
+          body: JSON.stringify({ action: "mark-seen" })
         });
+        setItems((prev) => prev.map((n) => ({ ...n, seen_at: n.seen_at ?? new Date().toISOString() })));
       } catch { /* ignore */ }
     }
   }

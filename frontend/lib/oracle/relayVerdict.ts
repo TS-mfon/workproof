@@ -51,6 +51,7 @@ export async function relayVerdict(input: {
       status: "pending"
     });
     await logActivity({
+      event_key: `verdict:${input.jobId.toLowerCase()}:${hash.toLowerCase()}:pass`,
       event_type: "verdict_pass",
       job_id: input.jobId,
       actor_wallet: input.freelancer,
@@ -71,6 +72,7 @@ export async function relayVerdict(input: {
       }
     });
     await logActivity({
+      event_key: `verdict:${input.jobId.toLowerCase()}:${hash.toLowerCase()}:fail`,
       event_type: nextRetry >= 3 ? "refund_issued" : "verdict_fail",
       job_id: input.jobId,
       actor_wallet: input.freelancer,

@@ -19,7 +19,10 @@ export async function POST(request: NextRequest) {
     await supabase.from("jobs").update({ status: body.status, ai_verdict: body.ai_verdict ?? null }).eq("job_id_onchain", body.job_id_onchain);
   }
   if (body.activity) {
-    await supabase.from("activity_log").insert(body.activity);
+    if (!body.activity.event_key) {
+      return NextResponse.json({ error: "activity.event_key required" }, { status: 400 });
+    }
+    await supabase.from("activity_log").upsert(body.activity, { onConflict: "event_key", ignoreDuplicates: true });
   }
   return NextResponse.json({ ok: true });
 }

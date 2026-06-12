@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { ipFromRequest, rateLimit } from "@/lib/rate-limit";
 import { signVerifySubmission, writeGenLayerAudit } from "@/lib/oracle/genlayer";
 import { serviceSupabase } from "@/lib/oracle/supabase";
+import { serverPublicClient, serverWorkProofAddress } from "@/lib/server-chain";
+import { readJob, readJobSubmissions, readSubmission } from "@/lib/workproof-reads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,6 +65,36 @@ export async function POST(request: NextRequest) {
     return err("invalid_input", "Invalid attempt value", 400);
   }
 
+  const contract = serverWorkProofAddress();
+  if (!contract) return err("oracle_misconfigured", "WorkProof contract is not configured", 503);
+  try {
+    const client = serverPublicClient();
+    const [chainJob, chainSubmission] = await Promise.all([
+      readJob(client, jobId as `0x${string}`, contract),
+      readSubmission(client, submissionId as `0x${string}`, contract)
+    ]);
+    if (chainSubmission.jobId.toLowerCase() !== jobId.toLowerCase()) return err("invalid_input", "Submission belongs to another job", 422);
+    if (chainSubmission.freelancer.toLowerCase() !== freelancer.toLowerCase()) return err("invalid_input", "Freelancer does not match on-chain submission", 422);
+    if (chainSubmission.deliverableUrl !== deliverableUrl) return err("invalid_input", "Deliverable URL does not match on-chain submission", 422);
+    if (Number(chainSubmission.attempt) !== attemptNum) return err("invalid_input", "Attempt does not match on-chain submission", 422);
+    if (chainSubmission.status !== 0) return err("invalid_input", "Submission is already resolved", 409);
+
+    if (chainJob.mode === 2) {
+      const ids = await readJobSubmissions(client, jobId as `0x${string}`, contract);
+      const prior = await Promise.all(ids.filter((id) => id.toLowerCase() !== submissionId.toLowerCase()).map((id) => readSubmission(client, id, contract)));
+      const unresolved = prior.some((item) =>
+        item.freelancer.toLowerCase() === freelancer.toLowerCase() &&
+        item.status === 0 &&
+        item.submittedAt < chainSubmission.submittedAt
+      );
+      if (unresolved) return err("invalid_input", "A prior competitive submission is still under review", 409);
+    }
+
+    body.criteria = chainJob.acceptanceCriteria;
+  } catch (e) {
+    return err("invalid_input", `Could not verify on-chain submission: ${(e as Error).message}`.slice(0, 300), 422);
+  }
+
   // Pre-flight idempotency: if this (submissionId, attempt) was already signed,
   // return the prior glTxId without re-signing. The audit table has
   // `unique (submission_id, attempt)` so even a concurrent race ends up here.
@@ -93,7 +125,7 @@ export async function POST(request: NextRequest) {
     submissionId,
     freelancer,
     deliverableUrl,
-    criteria,
+    criteria: body.criteria!,
     attempt: attemptNum
   });
 

@@ -64,12 +64,13 @@ export async function POST(request: NextRequest) {
       .map((u: { wallet_address: string }) => u.wallet_address?.toLowerCase())
       .filter(Boolean)
       .map((wallet: string) => ({
+        event_key: `announcement:${data.id}:${wallet}`,
         recipient_wallet: wallet,
         kind: "announcement",
         payload: { message: body.message, announcement_id: data.id, kind: body.kind ?? "info" }
       }));
     if (rows.length > 0) {
-      await supabase.from("notifications").insert(rows);
+      await supabase.from("notifications").upsert(rows, { onConflict: "event_key", ignoreDuplicates: true });
     }
   } catch {
     // Non-fatal — the announcement is already saved.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAccount, usePublicClient, useSwitchChain, useWriteContract } from "wagmi";
 import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
@@ -33,6 +34,7 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
   const { switchChainAsync } = useSwitchChain();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
+  const router = useRouter();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
   const [signedAt, setSignedAt] = useState<Record<string, string>>({}); // submissionId -> ISO signed_at if already signed
@@ -136,7 +138,7 @@ export function SubmissionRankingPanel({ job }: { job: Job }) {
         args
       })
     });
-    if (hash) setTimeout(() => location.reload(), 1000);
+    if (hash) setTimeout(() => router.refresh(), 1000);
   }
 
   if (submissions.length === 0) return null;

@@ -12,6 +12,7 @@ export function serviceSupabase(): SupabaseClient {
 }
 
 export async function logActivity(input: {
+  event_key: string;
   event_type: string;
   job_id?: string;
   actor_wallet?: string;
@@ -19,7 +20,10 @@ export async function logActivity(input: {
   metadata?: Record<string, unknown>;
   tx_hash?: string;
 }) {
-  const { error } = await serviceSupabase().from("activity_log").insert(input);
+  const { error } = await serviceSupabase().from("activity_log").upsert(input, {
+    onConflict: "event_key",
+    ignoreDuplicates: true
+  });
   if (error) throw error;
 }
 

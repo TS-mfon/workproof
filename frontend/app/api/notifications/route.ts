@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase";
+import { serviceSupabase } from "@/lib/oracle/supabase";
+import { requireWalletSession } from "@/lib/wallet-session";
 
-export async function GET(request: NextRequest) {
-  const supabase = getSupabaseServer();
-  if (!supabase) return NextResponse.json({ notifications: [] });
-  const wallet = request.nextUrl.searchParams.get("wallet")?.toLowerCase();
-  if (!wallet) return NextResponse.json({ notifications: [] });
+export async function GET() {
+  const session = await requireWalletSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const supabase = serviceSupabase();
   const { data, error } = await supabase
     .from("notifications")
     .select("*")
-    .eq("recipient_wallet", wallet)
+    .eq("recipient_wallet", session.wallet)
     .order("created_at", { ascending: false })
     .limit(50);
   if (error) return NextResponse.json({ notifications: [], note: error.message });
@@ -17,24 +17,18 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = getSupabaseServer();
-  if (!supabase) return NextResponse.json({ ok: false, note: "Supabase not configured" });
+  const session = await requireWalletSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const supabase = serviceSupabase();
   const body = await request.json();
-  if (Array.isArray(body)) {
-    const { error } = await supabase.from("notifications").insert(body);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ok: true });
-  }
-  if (body.action === "mark-seen" && body.wallet) {
+  if (body.action === "mark-seen") {
     const { error } = await supabase
       .from("notifications")
       .update({ seen_at: new Date().toISOString() })
-      .eq("recipient_wallet", body.wallet.toLowerCase())
+      .eq("recipient_wallet", session.wallet)
       .is("seen_at", null);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }
-  const { data, error } = await supabase.from("notifications").insert(body).select("*").single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ notification: data });
+  return NextResponse.json({ error: "unsupported action" }, { status: 400 });
 }

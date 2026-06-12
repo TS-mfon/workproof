@@ -6,6 +6,7 @@ export const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY,
 });
 
 export async function logActivity(input: {
+  event_key: string;
   event_type: string;
   job_id?: string;
   actor_wallet?: string;
@@ -13,7 +14,10 @@ export async function logActivity(input: {
   metadata?: Record<string, unknown>;
   tx_hash?: string;
 }) {
-  const { error } = await supabase.from("activity_log").insert(input);
+  const { error } = await supabase.from("activity_log").upsert(input, {
+    onConflict: "event_key",
+    ignoreDuplicates: true
+  });
   if (error) throw error;
 }
 

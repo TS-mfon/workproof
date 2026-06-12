@@ -11,6 +11,7 @@ import { EthAmount } from "@/components/shared/EthAmount";
 import { Mono } from "@/components/shared/Mono";
 import { getActivities, getJob } from "@/lib/data";
 import { timeLeft } from "@/lib/format";
+import { ConfirmingJob } from "@/components/jobs/ConfirmingJob";
 
 // Always render against live chain state — never serve a cached/stale status.
 export const dynamic = "force-dynamic";
@@ -18,7 +19,10 @@ export const dynamic = "force-dynamic";
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const [job, activities] = await Promise.all([getJob(id), getActivities(20, id)]);
-  if (!job) notFound();
+  if (!job) {
+    if (/^0x[0-9a-fA-F]{64}$/.test(id)) return <ConfirmingJob jobId={id} />;
+    notFound();
+  }
 
   return (
     <section className="shell grid gap-6 py-10 lg:grid-cols-[1fr_340px]">

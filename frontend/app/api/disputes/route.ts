@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServer } from "@/lib/supabase";
 import { verifyAdminAction } from "@/lib/auth";
 import { ipFromRequest, rateLimit } from "@/lib/rate-limit";
+import { requireWalletSession } from "@/lib/wallet-session";
 
 function checkAdminWallet(request: NextRequest): string | null {
   const adminWallet = request.headers.get("x-admin-wallet")?.toLowerCase();
@@ -40,6 +41,8 @@ export async function POST(request: NextRequest) {
   if (!supabase) return NextResponse.json({ ok: false, note: "Supabase not configured" }, { status: 200 });
 
   const body = await request.json();
+  const session = await requireWalletSession();
+  if (!session) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!body.job_id_onchain || !body.opener_wallet || !body.reason) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
@@ -49,7 +52,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase.from("disputes").insert({
     job_id_onchain: body.job_id_onchain,
-    opener_wallet: body.opener_wallet,
+    opener_wallet: session.wallet,
     reason: body.reason
   }).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

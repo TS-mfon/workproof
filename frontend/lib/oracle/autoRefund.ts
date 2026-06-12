@@ -13,6 +13,7 @@ export async function autoRefund(jobId: `0x${string}`, reason = "Deadline passed
   });
   await updateJob(jobId, { status: "Refunded" });
   await logActivity({
+    event_key: `refund:${jobId.toLowerCase()}:${hash.toLowerCase()}`,
     event_type: "refund_issued",
     job_id: jobId,
     metadata: { reason },

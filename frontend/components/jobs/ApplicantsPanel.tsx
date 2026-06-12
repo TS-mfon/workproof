@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAccount, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
@@ -13,6 +14,7 @@ export function ApplicantsPanel({ job }: { job: Job }) {
   const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
+  const router = useRouter();
   const isClient = address && address.toLowerCase() === job.client_wallet.toLowerCase();
 
   const { data: applicants, isLoading, refetch } = useReadContract({
@@ -48,7 +50,7 @@ export function ApplicantsPanel({ job }: { job: Job }) {
     });
     setAcceptingFor(null);
     if (hash) {
-      setTimeout(() => { location.reload(); }, 1500);
+      setTimeout(() => router.refresh(), 1500);
       refetch();
     }
   }

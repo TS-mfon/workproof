@@ -27,7 +27,11 @@ export async function getJobs(limit = 100): Promise<Job[]> {
 
 export async function getJob(id: string) {
   // Chain first — never serve a stale cached status for the detail page.
-  const chainJob = await getOnchainJob(id);
+  let chainJob = await getOnchainJob(id);
+  for (let attempt = 0; !chainJob && /^0x[0-9a-fA-F]{64}$/.test(id) && attempt < 3; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+    chainJob = await getOnchainJob(id);
+  }
   const supabase = getSupabaseServer();
   if (!supabase) return chainJob;
   if (!chainJob) {

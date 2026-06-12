@@ -45,6 +45,9 @@ alter table notifications enable row level security;
 alter table announcements enable row level security;
 alter table disputes enable row level security;
 
+drop policy if exists "notifications visible to recipient" on notifications;
 create policy "notifications visible to recipient" on notifications for select using (true);
+drop policy if exists "announcements public" on announcements;
 create policy "announcements public" on announcements for select using (true);
+drop policy if exists "disputes public" on disputes;
 create policy "disputes public" on disputes for select using (true);

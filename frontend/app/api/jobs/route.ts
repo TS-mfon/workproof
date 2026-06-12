@@ -4,6 +4,7 @@ import { verifyOracleSignature } from "@/lib/oracle-hmac";
 import { ipFromRequest, rateLimit } from "@/lib/rate-limit";
 import { serverPublicClient, serverWorkProofAddress } from "@/lib/server-chain";
 import { readJob, statusName, isAssigned } from "@/lib/workproof-reads";
+import { eventKey } from "@/lib/oracle/events";
 
 export async function GET(request: NextRequest) {
   const supabase = getSupabaseServer();
@@ -89,13 +90,14 @@ export async function POST(request: NextRequest) {
   const { data, error: jobError } = await supabase.from("jobs").upsert(row, { onConflict: "job_id_onchain" }).select("*").single();
   if (jobError) return NextResponse.json({ error: jobError.message }, { status: 500 });
 
-  await supabase.from("activity_log").insert({
+  await supabase.from("activity_log").upsert({
+    event_key: eventKey("job-posted", row.job_id_onchain, txHash),
     event_type: "job_posted",
     job_id: row.job_id_onchain,
     actor_wallet: row.client_wallet,
     metadata: { title: row.title, domain: row.domain, amount: row.escrow_amount_wei },
     tx_hash: txHash
-  });
+  }, { onConflict: "event_key", ignoreDuplicates: true });
   return NextResponse.json({ job: data });
 }
 
@@ -119,7 +121,10 @@ export async function PATCH(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (claim_id) {
     await supabase.from("claim_queue").update({ status: "claimed", claimed_at: new Date().toISOString() }).eq("id", claim_id);
-    await supabase.from("activity_log").insert({ event_type: "reward_claimed", job_id: job_id_onchain, metadata: updates, tx_hash });
+    await supabase.from("activity_log").upsert({
+      event_key: eventKey("reward-claimed", job_id_onchain, tx_hash),
+      event_type: "reward_claimed", job_id: job_id_onchain, metadata: updates, tx_hash
+    }, { onConflict: "event_key", ignoreDuplicates: true });
   }
   return NextResponse.json({ ok: true });
 }

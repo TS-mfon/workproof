@@ -5,6 +5,8 @@ import { arbitrumPublicClient, workProofAddress } from "@/lib/oracle/chain";
 import { readCursor, writeCursor } from "@/lib/oracle/cursor";
 import { logActivity, serviceSupabase, updateJob } from "@/lib/oracle/supabase";
 import { signVerifySubmission, writeGenLayerAudit } from "@/lib/oracle/genlayer";
+import { readJob } from "@/lib/workproof-reads";
+import { eventKey, upsertEvents } from "@/lib/oracle/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,34 +19,6 @@ const START_FALLBACK_LOOKBACK = 5_000n; // first run: scan recent history
 const submissionRecordedEvent = parseAbiItem(
   "event SubmissionRecorded(bytes32 indexed jobId, bytes32 indexed submissionId, address indexed freelancer, uint256 attempt, string deliverableUrl)"
 );
-
-const getJobAbi = [
-  {
-    type: "function",
-    name: "getJob",
-    stateMutability: "view",
-    inputs: [{ name: "jobId", type: "bytes32" }],
-    outputs: [
-      {
-        type: "tuple",
-        components: [
-          { name: "jobId", type: "bytes32" },
-          { name: "client", type: "address" },
-          { name: "assignedFreelancer", type: "address" },
-          { name: "escrowAmount", type: "uint256" },
-          { name: "rewardAmount", type: "uint256" },
-          { name: "title", type: "string" },
-          { name: "specIpfsHash", type: "string" },
-          { name: "acceptanceCriteria", type: "string" },
-          { name: "domain", type: "string" },
-          { name: "deadline", type: "uint256" },
-          { name: "status", type: "uint8" },
-          { name: "retryCount", type: "uint256" }
-        ]
-      }
-    ]
-  }
-] as const;
 
 export async function GET(request: NextRequest) {
   const auth = authorizeCron(request);
@@ -93,6 +67,7 @@ export async function GET(request: NextRequest) {
           deliverable_url: deliverableUrl
         });
         await logActivity({
+          event_key: `submission:${submissionId.toLowerCase()}:recorded`,
           event_type: "work_submitted",
           job_id: jobId,
           actor_wallet: freelancer,
@@ -100,14 +75,24 @@ export async function GET(request: NextRequest) {
           tx_hash: log.transactionHash ?? undefined
         });
 
-        // Fetch criteria from on-chain
-        const job = await client.readContract({
-          address: workProofAddress,
-          abi: getJobAbi,
-          functionName: "getJob",
-          args: [jobId]
-        });
-        const criteria = (job as { acceptanceCriteria: string }).acceptanceCriteria;
+        const job = await readJob(client, jobId, workProofAddress);
+        const criteria = job.acceptanceCriteria;
+        await upsertEvents(serviceSupabase(), "notifications", [
+          {
+            event_key: eventKey("submission", submissionId, "client"),
+            recipient_wallet: job.client.toLowerCase(),
+            kind: "work_submitted",
+            job_id: jobId,
+            payload: { message: `A submission for "${job.title}" is under AI review.` }
+          },
+          {
+            event_key: eventKey("submission", submissionId, "freelancer"),
+            recipient_wallet: freelancer.toLowerCase(),
+            kind: "review_started",
+            job_id: jobId,
+            payload: { message: `Your submission for "${job.title}" is under AI review.` }
+          }
+        ]);
 
         // Pre-flight idempotency: if a prior request already signed this
         // (submissionId, attempt), don't re-sign — count as already triggered.

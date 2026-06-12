@@ -7,6 +7,7 @@ import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
 import { Stepper } from "@/components/post/Stepper";
+import { useRouter } from "next/navigation";
 
 type FormState = {
   title: string;
@@ -47,6 +48,7 @@ export function PostWizard() {
   const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
+  const router = useRouter();
   // Synchronous guard against double-fire: `isPending` flips async (after the
   // wallet call starts), so a fast double-click could fire two posts before it
   // updates. A ref is set the instant submit begins.
@@ -173,7 +175,7 @@ export function PostWizard() {
           setError("Job posted on-chain but the JobPosted event wasn't found.");
           return;
         }
-        await fetch("/api/jobs", {
+        const indexResponse = await fetch("/api/jobs", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -191,9 +193,15 @@ export function PostWizard() {
             deadline: new Date(Number(deadlineSec) * 1000).toISOString(),
             tx_hash: hash
           })
-        }).catch(() => {});
+        });
+        const indexPayload = await indexResponse.json().catch(() => ({}));
+        if (!indexResponse.ok || !indexPayload.job) {
+          setError(indexPayload.error ?? "Job is confirmed on-chain but indexing failed. The sync worker will reconcile it.");
+          router.push(`/jobs/${jobId}`);
+          return;
+        }
         window.history.replaceState(null, "", "/jobs/post");
-        location.href = `/jobs/${jobId}`;
+        router.push(`/jobs/${jobId}`);
       } catch (err: any) {
         setError(err?.message || "Could not finalize indexing — the on-chain post is recorded.");
       }

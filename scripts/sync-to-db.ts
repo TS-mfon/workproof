@@ -8,7 +8,7 @@ const rpcUrl = process.env.ARBITRUM_SEPOLIA_RPC ?? "https://sepolia-rollup.arbit
 const address = (process.env.WORKPROOF_CONTRACT ?? process.env.NEXT_PUBLIC_WORKPROOF_CONTRACT) as Hex;
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-const statusLabels = ["Open", "Active", "UnderReview", "Failed", "Passed", "Complete", "Refunded", "Deleted"];
+const statusLabels = ["Open", "Active", "UnderReview", "Failed", "AwaitingApproval", "Passed", "Complete", "Refunded", "Deleted"];
 
 if (!address || !supabaseUrl || !supabaseKey) {
   console.error("Missing: WORKPROOF_CONTRACT, SUPABASE_URL, SUPABASE_SERVICE_KEY");
@@ -31,8 +31,12 @@ async function main() {
       const claimed = await publicClient.readContract({ address, abi: workProofAbi, functionName: "rewardClaimed", args: [ids[i]] });
       const score = await publicClient.readContract({ address, abi: workProofAbi, functionName: "verdictQualityScore", args: [ids[i]] });
 
-      try { await supabase.from("users").upsert({ wallet_address: job.client, role: "client", jobs_posted: 1 }, { onConflict: "wallet_address" }); } catch {}
-      if (freelancer) { try { await supabase.from("users").upsert({ wallet_address: freelancer, role: "freelancer" }, { onConflict: "wallet_address" }); } catch {} }
+      const { error: clientError } = await supabase.from("users").upsert({ wallet_address: job.client, role: "client" }, { onConflict: "wallet_address" });
+      if (clientError) throw clientError;
+      if (freelancer) {
+        const { error: freelancerError } = await supabase.from("users").upsert({ wallet_address: freelancer, role: "freelancer" }, { onConflict: "wallet_address" });
+        if (freelancerError) throw freelancerError;
+      }
 
       const criteria = String(job.acceptanceCriteria || "");
       const brief = criteria.match(/PROJECT BRIEF:\s*([\s\S]*?)(?:\n\s*ACCEPTANCE CRITERIA:|\n\s*DELIVERABLES:|$)/i)?.[1]?.trim();

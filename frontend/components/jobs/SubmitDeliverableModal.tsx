@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { parseEventLogs } from "viem";
 import { useAccount, useChainId, usePublicClient, useWriteContract } from "wagmi";
+import { useRouter } from "next/navigation";
 import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
@@ -45,6 +46,7 @@ export function SubmitDeliverableModal({
   const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [urlError, setUrlError] = useState("");
   const [stage, setStage] = useState<Stage>("idle");
@@ -206,7 +208,7 @@ export function SubmitDeliverableModal({
       const delay = payload.alreadySigned ? 1200 : 1500;
       setTimeout(() => {
         onClose();
-        location.reload();
+        router.refresh();
       }, delay);
     } catch (error) {
       setUrlError(error instanceof Error
@@ -273,6 +275,14 @@ export function SubmitDeliverableModal({
             type="url"
           />
         </div>
+
+        {domain === "content" && (
+          <p className="text-xs text-muted">
+            Need a public page for written work? You can publish it on{" "}
+            <a href="https://write.as/" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>Write.as</a>,
+            then paste the public URL here.
+          </p>
+        )}
 
         {verifiableMessage && (
           <div style={{ background: "var(--warn-soft)", border: "1px solid #FDE68A", borderRadius: 10, padding: 12, fontSize: 13, color: "#92400E" }}>

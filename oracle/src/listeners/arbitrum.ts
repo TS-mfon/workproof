@@ -27,6 +27,7 @@ export function startArbitrumListener() {
           deliverable_url: deliverableUrl
         });
         await logActivity({
+          event_key: `work-submitted:${jobId.toLowerCase()}:${log.transactionHash?.toLowerCase() ?? deliverableUrl}`,
           event_type: "work_submitted",
           job_id: jobId,
           actor_wallet: freelancer,

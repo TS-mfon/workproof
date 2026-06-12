@@ -89,7 +89,13 @@ export async function readAllJobs(client: PublicClient, contract?: `0x${string}`
     allowFailure: true,
     contracts: ids.map((id) => ({ address: addr(contract), abi: workProofAbi, functionName: "getJob", args: [id] } as const))
   });
-  return results.flatMap((r) => (r.status === "success" ? [r.result as unknown as ChainJob] : []));
+  const failures = results.flatMap((result, index) =>
+    result.status === "failure" ? [`${ids[index]}: ${result.error.message}`] : []
+  );
+  if (failures.length > 0) {
+    throw new Error(`Failed to read ${failures.length} on-chain job(s): ${failures.join("; ")}`);
+  }
+  return results.map((result) => (result as { status: "success"; result: unknown }).result as ChainJob);
 }
 
 export async function readApplicants(client: PublicClient, jobId: `0x${string}`, contract?: `0x${string}`): Promise<`0x${string}`[]> {

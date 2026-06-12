@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAccount, useChainId, usePublicClient, useReadContract, useWriteContract } from "wagmi";
 import { arbitrumSepolia } from "viem/chains";
 import { workProofAbi, workProofAddress } from "@/lib/contracts";
 import { useTx } from "@/components/shared/TxToast";
 import { SubmitDeliverableModal } from "@/components/jobs/SubmitDeliverableModal";
 import type { Job } from "@/lib/types";
+import { useWalletSession } from "@/lib/wallet-session-client";
 
 export function JobActionPanel({ job }: { job: Job }) {
   const { address, isConnected } = useAccount();
@@ -14,8 +16,10 @@ export function JobActionPanel({ job }: { job: Job }) {
   const publicClient = usePublicClient();
   const { writeContractAsync, isPending } = useWriteContract();
   const { run } = useTx();
+  const router = useRouter();
   const [openSubmit, setOpenSubmit] = useState(false);
   const [openDispute, setOpenDispute] = useState(false);
+  const [hasUnresolvedCompetitive, setHasUnresolvedCompetitive] = useState(false);
 
   const wallet = address?.toLowerCase();
   const isClient = wallet === job.client_wallet.toLowerCase();
@@ -37,6 +41,30 @@ export function JobActionPanel({ job }: { job: Job }) {
     query: { enabled: !!workProofAddress && !!address }
   });
 
+  useEffect(() => {
+    if (!publicClient || !workProofAddress || !address || job.mode !== "Competitive") return;
+    let active = true;
+    (async () => {
+      const ids = await publicClient.readContract({
+        address: workProofAddress,
+        abi: workProofAbi,
+        functionName: "getJobSubmissions",
+        args: [job.job_id_onchain as `0x${string}`]
+      });
+      const records = await publicClient.multicall({
+        allowFailure: true,
+        contracts: ids.map((id) => ({ address: workProofAddress!, abi: workProofAbi, functionName: "getSubmission", args: [id] }))
+      });
+      const unresolved = records.some((record) => {
+        if (record.status !== "success") return false;
+        const submission = record.result as unknown as { freelancer: string; status: number };
+        return submission.freelancer.toLowerCase() === address.toLowerCase() && submission.status === 0;
+      });
+      if (active) setHasUnresolvedCompetitive(unresolved);
+    })().catch(() => {});
+    return () => { active = false; };
+  }, [address, job.job_id_onchain, job.mode, publicClient]);
+
   async function call(functionName: "applyForJob" | "cancelJob" | "claimReward", label: string) {
     const addr = workProofAddress;
     if (!addr || !address) return;
@@ -53,7 +81,7 @@ export function JobActionPanel({ job }: { job: Job }) {
         args
       })
     });
-    if (hash) setTimeout(() => location.reload(), 1200);
+    if (hash) setTimeout(() => router.refresh(), 1200);
   }
 
   if (!isConnected || !address) {
@@ -107,14 +135,24 @@ export function JobActionPanel({ job }: { job: Job }) {
 
       {job.status === "Open" && job.mode === "Competitive" && !isClient && (
         <>
-          <button className="btn" disabled={isPending} onClick={() => setOpenSubmit(true)}>Submit competitive entry</button>
-          <p className="text-xs text-muted">Up to three attempts. GenLayer ranks passing submissions and the client approves the highest score after the deadline.</p>
+          <button className="btn" disabled={isPending || hasUnresolvedCompetitive} onClick={() => setOpenSubmit(true)}>Submit competitive entry</button>
+          <p className="text-xs text-muted">
+            {hasUnresolvedCompetitive
+              ? "Your current entry is still under review. You can submit again after it resolves."
+              : "Up to three attempts. GenLayer ranks passing submissions and the client approves the highest score after the deadline."}
+          </p>
         </>
       )}
 
       {job.status === "Open" && isClient && (
         <>
-          <p className="text-sm text-muted">Pick a freelancer from the applicants panel below to start the job. Or cancel and refund:</p>
+          <p className="text-sm text-muted">
+            {job.mode === "Competitive"
+              ? "Freelancers submit entries until the deadline. After it closes, approve the highest-ranked passing submission."
+              : job.mode === "Direct"
+                ? "This direct job is reserved for the assigned freelancer."
+                : "Pick a freelancer from the applicants panel below to start the job."}
+          </p>
           <button className="btn danger" disabled={isPending} onClick={() => call("cancelJob", "Cancelling job")}>
             Cancel job &amp; refund
           </button>
@@ -146,7 +184,9 @@ export function JobActionPanel({ job }: { job: Job }) {
       )}
 
       {job.status === "UnderReview" && job.mode === "Competitive" && !isClient && (
-        <button className="btn ghost" disabled={isPending} onClick={() => setOpenSubmit(true)}>Submit another attempt</button>
+        <button className="btn ghost" disabled={isPending || hasUnresolvedCompetitive} onClick={() => setOpenSubmit(true)}>
+          {hasUnresolvedCompetitive ? "Current attempt under review" : "Submit another attempt"}
+        </button>
       )}
 
       {job.status === "AwaitingApproval" && (
@@ -222,16 +262,19 @@ function DisputeModal({ jobId, opener, onClose }: { jobId: string; opener: strin
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const { ensureSession } = useWalletSession();
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await fetch("/api/disputes", {
+      await ensureSession();
+      const response = await fetch("/api/disputes", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ job_id_onchain: jobId, opener_wallet: opener, reason })
       });
+      if (!response.ok) throw new Error("Dispute submission failed");
       setDone(true);
       setTimeout(onClose, 1500);
     } catch {

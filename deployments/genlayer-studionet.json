@@ -1,7 +1,7 @@
 {
   "network": "studionet",
   "chainId": 61999,
-  "workVerifier": "0x3660ef8bC70Cb6Ff8F548Ad2924ED0B71d43D86e",
+  "workVerifier": "0x08DCD81C82D1760993E629ad8D6753FFE4739179",
   "rpc": "https://studio.genlayer.com/api",
   "verifiedRead": {
     "method": "get_verdict",

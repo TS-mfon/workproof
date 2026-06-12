@@ -5,7 +5,7 @@ import { useAccount } from "wagmi";
 import { createPublicClient, http, type PublicClient } from "viem";
 import { arbitrumSepolia } from "viem/chains";
 import { workProofAddress } from "@/lib/contracts";
-import { chainJobToJob, readAllJobs } from "@/lib/workproof-reads";
+import { chainJobToJob, readAllJobsBestEffort } from "@/lib/workproof-reads";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { JobsTable } from "@/components/dashboard/JobsTable";
 import { StatsRow } from "@/components/dashboard/StatsRow";
@@ -23,6 +23,7 @@ export function ClientDashboard() {
   const { address, isConnected } = useAccount();
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [activities, setActivities] = useState<Activity[] | null>(null);
+  const [loadError, setLoadError] = useState("");
 
   // CHAIN-AUTHORITATIVE: read all jobs from the contract; DB enriches descriptions.
   useEffect(() => {
@@ -31,8 +32,9 @@ export function ClientDashboard() {
     let alive = true;
     (async () => {
       try {
+        setLoadError("");
         const [chainJobs, dbRes] = await Promise.all([
-          readAllJobs(pc),
+          readAllJobsBestEffort(pc),
           fetch("/api/jobs").then((r) => r.json()).catch(() => ({ jobs: [] }))
         ]);
         if (!alive) return;
@@ -40,8 +42,11 @@ export function ClientDashboard() {
           (dbRes.jobs ?? []).map((d: Record<string, unknown>) => [String(d.job_id_onchain).toLowerCase(), d])
         );
         setJobs(chainJobs.map((cj) => chainJobToJob(cj, dbById.get(cj.jobId.toLowerCase()))));
-      } catch {
-        if (alive) setJobs([]);
+      } catch (error) {
+        if (alive) {
+          setJobs([]);
+          setLoadError(error instanceof Error ? error.message : "Could not read the WorkProof contract");
+        }
       }
     })();
     return () => { alive = false; };
@@ -64,7 +69,10 @@ export function ClientDashboard() {
 
   const myActivities = useMemo(() => {
     if (!wallet || !activities) return null;
-    return activities.filter((a) => a.actor_wallet?.toLowerCase() === wallet);
+    return activities.filter((a) =>
+      a.actor_wallet?.toLowerCase() === wallet ||
+      a.target_wallet?.toLowerCase() === wallet
+    );
   }, [activities, wallet]);
 
   if (!isConnected || !address) {
@@ -105,6 +113,11 @@ export function ClientDashboard() {
 
   return (
     <div className="grid gap-8">
+      {loadError && (
+        <div className="panel p-4 text-sm" style={{ borderColor: "var(--danger)", color: "var(--danger)" }}>
+          Contract data could not be loaded: {loadError}. Check the selected network and retry.
+        </div>
+      )}
       <StatsRow stats={stats} />
 
       <section className="grid gap-3">

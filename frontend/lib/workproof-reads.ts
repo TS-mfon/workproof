@@ -98,6 +98,18 @@ export async function readAllJobs(client: PublicClient, contract?: `0x${string}`
   return results.map((result) => (result as { status: "success"; result: unknown }).result as ChainJob);
 }
 
+// UI reads should preserve the successful jobs when one RPC multicall item
+// fails transiently. Cron/indexer code uses readAllJobs so it still fails loud.
+export async function readAllJobsBestEffort(client: PublicClient, contract?: `0x${string}`): Promise<ChainJob[]> {
+  const ids = await readJobIds(client, contract);
+  if (ids.length === 0) return [];
+  const results = await client.multicall({
+    allowFailure: true,
+    contracts: ids.map((id) => ({ address: addr(contract), abi: workProofAbi, functionName: "getJob", args: [id] } as const))
+  });
+  return results.flatMap((result) => result.status === "success" ? [result.result as unknown as ChainJob] : []);
+}
+
 export async function readApplicants(client: PublicClient, jobId: `0x${string}`, contract?: `0x${string}`): Promise<`0x${string}`[]> {
   return (await client.readContract({ address: addr(contract), abi: workProofAbi, functionName: "getApplicants", args: [jobId] })) as `0x${string}`[];
 }
